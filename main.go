@@ -13,6 +13,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"log"
@@ -28,14 +29,52 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const serverName = "loggerMCP"
+const serverVersion = "1.0.0"
+const authVerifiedHeader = "X-LoggerMCP-Authorized"
+
 type Config struct {
-	AccessKey     string `yaml:"access_key"`
-	SyslogPath    string `yaml:"syslog_path"`
-	Port          int    `yaml:"port"`
-	TLS           bool   `yaml:"tls"`
-	CertFile      string `yaml:"cert_file"`
-	KeyFile       string `yaml:"key_file"`
-	EncryptionKey string `yaml:"encryption_key"`
+	AccessKey           string `yaml:"access_key"`
+	SyslogPath          string `yaml:"syslog_path"`
+	Port                int    `yaml:"port"`
+	TLS                 bool   `yaml:"tls"`
+	CertFile            string `yaml:"cert_file"`
+	KeyFile             string `yaml:"key_file"`
+	EncryptionKey       string `yaml:"encryption_key"`
+	PublicBaseURL       string `yaml:"public_base_url"`
+	ManifestName        string `yaml:"manifest_name"`
+	ManifestTitle       string `yaml:"manifest_title"`
+	ManifestDescription string `yaml:"manifest_description"`
+	ManifestVersion     string `yaml:"manifest_version"`
+	ManifestPath        string `yaml:"manifest_path"`
+	ManifestRemoteType  string `yaml:"manifest_remote_type"`
+	ManifestRemoteURL   string `yaml:"manifest_remote_url"`
+	HealthPath          string `yaml:"health_path"`
+}
+
+type manifestRemote struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+
+type manifestResponse struct {
+	Description string           `json:"description"`
+	Name        string           `json:"name"`
+	Remotes     []manifestRemote `json:"remotes"`
+	Title       string           `json:"title"`
+	Version     string           `json:"version"`
+}
+
+type healthResponse struct {
+	Status            string `json:"status"`
+	Version           string `json:"version"`
+	Time              string `json:"time"`
+	AuthRequired      bool   `json:"auth_required"`
+	TLS               bool   `json:"tls"`
+	LogFile           string `json:"log_file"`
+	LogFileAccessible bool   `json:"log_file_accessible"`
+	ManifestURL       string `json:"manifest_url"`
+	RemoteURL         string `json:"remote_url"`
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -59,7 +98,177 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.KeyFile == "" {
 		cfg.KeyFile = "key.pem"
 	}
+	if cfg.ManifestName == "" {
+		cfg.ManifestName = "logger.local/mcp"
+	}
+	if cfg.ManifestTitle == "" {
+		cfg.ManifestTitle = serverName
+	}
+	if cfg.ManifestDescription == "" {
+		cfg.ManifestDescription = "Remote MCP server for Ubuntu syslog search workflows."
+	}
+	if cfg.ManifestVersion == "" {
+		cfg.ManifestVersion = serverVersion
+	}
+	if cfg.ManifestPath == "" {
+		cfg.ManifestPath = "/manifest"
+	}
+	if cfg.ManifestRemoteType == "" {
+		cfg.ManifestRemoteType = "sse"
+	}
+	if cfg.HealthPath == "" {
+		cfg.HealthPath = "/health"
+	}
 	return &cfg, nil
+}
+
+func serverScheme(cfg *Config) string {
+	if cfg.TLS {
+		return "https"
+	}
+	return "http"
+}
+
+func baseURL(cfg *Config) string {
+	if cfg.PublicBaseURL != "" {
+		return strings.TrimRight(cfg.PublicBaseURL, "/")
+	}
+	return fmt.Sprintf("%s://localhost:%d", serverScheme(cfg), cfg.Port)
+}
+
+func manifestRemoteURL(cfg *Config) string {
+	if cfg.ManifestRemoteURL != "" {
+		return cfg.ManifestRemoteURL
+	}
+	return baseURL(cfg) + "/sse"
+}
+
+func isAccessKeyValid(cfg *Config, accessKey string) bool {
+	if cfg.AccessKey == "" {
+		return true
+	}
+	return accessKey == cfg.AccessKey
+}
+
+func extractAccessKeyFromHeaders(headers http.Header) string {
+	if headers == nil {
+		return ""
+	}
+
+	authorization := strings.TrimSpace(headers.Get("Authorization"))
+	if authorization != "" {
+		parts := strings.SplitN(authorization, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+
+	return strings.TrimSpace(headers.Get("X-Access-Key"))
+}
+
+func extractAccessKeyFromRequest(r *http.Request) string {
+	if accessKey := extractAccessKeyFromHeaders(r.Header); accessKey != "" {
+		return accessKey
+	}
+	return strings.TrimSpace(r.URL.Query().Get("access_key"))
+}
+
+func accessKeyMiddleware(cfg *Config, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isAccessKeyValid(cfg, extractAccessKeyFromRequest(r)) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		authorizedRequest := r.Clone(r.Context())
+		authorizedRequest.Header = r.Header.Clone()
+		authorizedRequest.Header.Set(authVerifiedHeader, "true")
+		next.ServeHTTP(w, authorizedRequest)
+	})
+}
+
+func isAuthorizedToolRequest(cfg *Config, request mcp.CallToolRequest, args map[string]any) bool {
+	if cfg.AccessKey == "" {
+		return true
+	}
+
+	if request.Header.Get(authVerifiedHeader) == "true" {
+		return true
+	}
+
+	if isAccessKeyValid(cfg, extractAccessKeyFromHeaders(request.Header)) {
+		return true
+	}
+
+	toolAccessKey, _ := args["access_key"].(string)
+	return isAccessKeyValid(cfg, toolAccessKey)
+}
+
+func buildManifest(cfg *Config) manifestResponse {
+	return manifestResponse{
+		Description: cfg.ManifestDescription,
+		Name:        cfg.ManifestName,
+		Remotes: []manifestRemote{{
+			Type: cfg.ManifestRemoteType,
+			URL:  manifestRemoteURL(cfg),
+		}},
+		Title:   cfg.ManifestTitle,
+		Version: cfg.ManifestVersion,
+	}
+}
+
+func manifestHandler(cfg *Config) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(buildManifest(cfg)); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+}
+
+func healthHandler(cfg *Config) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		logFileAccessible := false
+		if file, err := os.Open(cfg.SyslogPath); err == nil {
+			logFileAccessible = true
+			file.Close()
+		}
+
+		status := "ok"
+		statusCode := http.StatusOK
+		if !logFileAccessible {
+			status = "degraded"
+			statusCode = http.StatusServiceUnavailable
+		}
+
+		response := healthResponse{
+			Status:            status,
+			Version:           serverVersion,
+			Time:              time.Now().UTC().Format(time.RFC3339),
+			AuthRequired:      cfg.AccessKey != "",
+			TLS:               cfg.TLS,
+			LogFile:           cfg.SyslogPath,
+			LogFileAccessible: logFileAccessible,
+			ManifestURL:       baseURL(cfg) + cfg.ManifestPath,
+			RemoteURL:         manifestRemoteURL(cfg),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 }
 
 // ensureTLSCert generates a self-signed certificate if files don't exist.
@@ -226,16 +435,15 @@ func main() {
 	}
 
 	s := server.NewMCPServer(
-		"loggerMCP",
-		"1.0.0",
+		serverName,
+		serverVersion,
 		server.WithToolCapabilities(true),
 	)
 
 	readLogsTool := mcp.NewTool("read_logs",
 		mcp.WithDescription("Read and search syslog entries with date filtering, pattern matching, and pagination"),
 		mcp.WithString("access_key",
-			mcp.Required(),
-			mcp.Description("Access key for authentication"),
+			mcp.Description("Optional legacy access key. Not required when transport auth is used."),
 		),
 		mcp.WithString("start_date",
 			mcp.Description("Start date filter (format: 2006-01-02 or 2006-01-02T15:04:05)"),
@@ -259,16 +467,20 @@ func main() {
 
 	s.AddTool(readLogsTool, readLogsHandler(cfg))
 
-	scheme := "http"
-	if cfg.TLS {
-		scheme = "https"
-	}
-
 	sseServer := server.NewSSEServer(s,
-		server.WithBaseURL(fmt.Sprintf("%s://0.0.0.0:%d", scheme, cfg.Port)),
+		server.WithBaseURL(baseURL(cfg)),
+		server.WithAppendQueryToMessageEndpoint(),
 	)
+	mux := http.NewServeMux()
+	mux.Handle(cfg.ManifestPath, manifestHandler(cfg))
+	mux.Handle(cfg.HealthPath, healthHandler(cfg))
+	mux.Handle("/", accessKeyMiddleware(cfg, sseServer))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Port)
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
 
 	if cfg.TLS {
 		if err := ensureTLSCert(cfg.CertFile, cfg.KeyFile); err != nil {
@@ -280,24 +492,30 @@ func main() {
 			log.Fatalf("Failed to load certificate: %v", err)
 		}
 
-		httpServer := &http.Server{
-			Addr:    addr,
-			Handler: sseServer,
-			TLSConfig: &tls.Config{
-				Certificates: []tls.Certificate{tlsCert},
-				MinVersion:   tls.VersionTLS12,
-			},
+		httpServer.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{tlsCert},
+			MinVersion:   tls.VersionTLS12,
 		}
 
 		log.Printf("loggerMCP started on https://0.0.0.0:%d (TLS)", cfg.Port)
 		log.Printf("Log file: %s", cfg.SyslogPath)
+		if cfg.AccessKey != "" {
+			log.Printf("Access key auth: enabled")
+		}
+		log.Printf("Manifest endpoint: %s", baseURL(cfg)+cfg.ManifestPath)
+		log.Printf("Health endpoint: %s", baseURL(cfg)+cfg.HealthPath)
 		if err := httpServer.ListenAndServeTLS("", ""); err != nil {
 			log.Fatalf("Server error: %v", err)
 		}
 	} else {
 		log.Printf("loggerMCP started on http://0.0.0.0:%d", cfg.Port)
 		log.Printf("Log file: %s", cfg.SyslogPath)
-		if err := sseServer.Start(addr); err != nil {
+		if cfg.AccessKey != "" {
+			log.Printf("Access key auth: enabled")
+		}
+		log.Printf("Manifest endpoint: %s", baseURL(cfg)+cfg.ManifestPath)
+		log.Printf("Health endpoint: %s", baseURL(cfg)+cfg.HealthPath)
+		if err := httpServer.ListenAndServe(); err != nil {
 			log.Fatalf("Server error: %v", err)
 		}
 	}
@@ -308,8 +526,7 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 		args := request.GetArguments()
 
 		// Verify access key
-		key, _ := args["access_key"].(string)
-		if key != cfg.AccessKey {
+		if !isAuthorizedToolRequest(cfg, request, args) {
 			return mcp.NewToolResultError("unauthorized: invalid access key"), nil
 		}
 

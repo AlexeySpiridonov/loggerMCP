@@ -1,4 +1,9 @@
-# Access key for request authentication
+# Access key for transport authentication.
+# Supported locations:
+# - Authorization: Bearer <access_key>
+# - X-Access-Key: <access_key>
+# - ?access_key=<access_key> on the SSE URL
+# The read_logs tool can also accept access_key as a legacy fallback.
 access_key: "your-secret-key-here"
 
 # Path to syslog file
@@ -17,3 +22,19 @@ tls: true
 # Response encryption key (AES-256-GCM). Client and server must share the same key.
 # When set, client can pass encrypt: true to receive an encrypted response.
 encryption_key: "my-secret-encryption-key"
+
+# Public base URL used in manifest and health responses.
+# Set this when the server is behind a reverse proxy or public hostname.
+public_base_url: "https://logger.example.com"
+
+# Manifest metadata and endpoints.
+manifest_name: "logger.local/mcp"
+manifest_title: "loggerMCP"
+manifest_description: "Remote MCP server for Ubuntu syslog search workflows."
+manifest_version: "1.0.0"
+manifest_path: "/manifest"
+manifest_remote_type: "sse"
+# manifest_remote_url: "https://logger.example.com/sse"
+
+# Health endpoint path.
+health_path: "/health"

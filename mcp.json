@@ -1,0 +1,12 @@
+{
+  "description": "Remote MCP server for Ubuntu syslog search workflows.",
+  "name": "logger.local/mcp",
+  "remotes": [
+    {
+      "type": "sse",
+      "url": "http://localhost:7777/sse"
+    }
+  ],
+  "title": "loggerMCP",
+  "version": "1.0.0"
+}
