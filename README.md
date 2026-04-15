@@ -1,71 +1,74 @@
 # loggerMCP
 
-MCP-сервер на Go для чтения и поиска по Ubuntu syslog.
+Go MCP server for reading and searching Ubuntu syslog.
 
-## Возможности
+## Features
 
-- Чтение записей syslog с пагинацией
-- Фильтрация по диапазону дат (начало/конец)
-- Поиск по подстроке с поддержкой wildcards (`*`)
-- Аутентификация по ключу доступа
-- SSE-транспорт на порту 7777
+- Read syslog entries with pagination
+- Filter by date range (start/end)
+- Substring search with wildcard (`*`) support
+- Access key authentication
+- AES-256-GCM response encryption
+- TLS with auto-generated self-signed certificate
+- SSE transport on port 7777
 
-## Быстрая установка
+## Quick Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AlexeySpiridonov/loggerMCP/main/install.sh | sudo bash
 ```
 
-После установки:
+After installation:
 
 ```bash
-# Задать ключ доступа
+# Set access key
 sudo nano /etc/loggermcp/config.yaml
 
-# Запустить
+# Start
 sudo systemctl start loggermcp
 
-# Проверить
+# Check status
 sudo systemctl status loggermcp
 ```
 
-## Настройка
+## Configuration
 
 ```bash
 cp config.yaml.example config.yaml
 ```
 
-Отредактируйте `config.yaml`:
+Edit `config.yaml`:
 
 ```yaml
-access_key: "ваш-секретный-ключ"
+access_key: "your-secret-key"
 syslog_path: "/var/log/syslog"
 port: 7777
 ```
 
-## Сборка и запуск
+## Build & Run
 
 ```bash
 go build -o loggerMCP .
 ./loggerMCP
-# или с указанием пути к конфигу:
+# or with a custom config path:
 ./loggerMCP /path/to/config.yaml
 ```
 
 ## MCP Tool: `read_logs`
 
-| Параметр     | Тип    | Обязательный | Описание                                                       |
-|-------------|--------|-------------|----------------------------------------------------------------|
-| access_key  | string | да          | Ключ доступа                                                   |
-| start_date  | string | нет         | Начальная дата (`2006-01-02` или `2006-01-02T15:04:05`)        |
-| end_date    | string | нет         | Конечная дата (`2006-01-02` или `2006-01-02T15:04:05`)         |
-| pattern     | string | нет         | Фильтр по подстроке, `*` — wildcard. Пример: `error*disk`     |
-| page        | number | нет         | Номер страницы (по умолчанию 1)                                |
-| page_size   | number | нет         | Записей на странице (по умолчанию 100, макс 1000)              |
+| Parameter   | Type    | Required | Description                                                    |
+|-------------|---------|----------|----------------------------------------------------------------|
+| access_key  | string  | yes      | Access key                                                     |
+| start_date  | string  | no       | Start date (`2006-01-02` or `2006-01-02T15:04:05`)            |
+| end_date    | string  | no       | End date (`2006-01-02` or `2006-01-02T15:04:05`)              |
+| pattern     | string  | no       | Substring filter, `*` = wildcard. Example: `error*disk`        |
+| page        | number  | no       | Page number (default: 1)                                       |
+| page_size   | number  | no       | Entries per page (default: 100, max: 1000)                     |
+| encrypt     | boolean | no       | Encrypt response with AES-256-GCM (key from config)            |
 
 ## TLS
 
-В `config.yaml` включите `tls: true` — сервер автоматически сгенерирует self-signed сертификат при первом запуске. Или укажите свои:
+Set `tls: true` in `config.yaml` — the server will auto-generate a self-signed certificate on first run. Or provide your own:
 
 ```yaml
 tls: true
@@ -73,54 +76,70 @@ cert_file: "/path/to/cert.pem"
 key_file: "/path/to/key.pem"
 ```
 
-## Установка через APT
+## Encryption
 
-### Добавить репозиторий
+Set `encryption_key` in config. When a client passes `encrypt: true`, the response is encrypted with AES-256-GCM and returned as `ENC:<base64>`.
+
+Decryption example (Python):
+
+```python
+import base64, hashlib
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+data = base64.b64decode(response.removeprefix("ENC:"))
+key = hashlib.sha256(b"my-secret-encryption-key").digest()
+gcm = AESGCM(key)
+plaintext = gcm.decrypt(data[:12], data[12:], None).decode()
+```
+
+## Install via APT
+
+### Add repository
 
 ```bash
-# Импортировать GPG-ключ
+# Import GPG key
 curl -fsSL https://AlexeySpiridonov.github.io/loggerMCP/public.gpg \
   | sudo gpg --dearmor -o /usr/share/keyrings/loggermcp.gpg
 
-# Добавить источник
+# Add source
 echo "deb [signed-by=/usr/share/keyrings/loggermcp.gpg] https://AlexeySpiridonov.github.io/loggerMCP stable main" \
   | sudo tee /etc/apt/sources.list.d/loggermcp.list
 
-# Установить
+# Install
 sudo apt update
 sudo apt install loggermcp
 ```
 
-После установки:
-- Бинарник: `/usr/bin/loggermcp`
-- Конфиг: `/etc/loggermcp/config.yaml` (создаётся из примера, **отредактируйте `access_key`**)
-- Systemd-сервис: `loggermcp.service`
+After installation:
+- Binary: `/usr/bin/loggermcp`
+- Config: `/etc/loggermcp/config.yaml` (created from example, **edit `access_key`**)
+- Systemd service: `loggermcp.service`
 
 ```bash
-# Отредактировать конфиг
+# Edit config
 sudo nano /etc/loggermcp/config.yaml
 
-# Запустить
+# Start
 sudo systemctl start loggermcp
 
-# Проверить статус
+# Check status
 sudo systemctl status loggermcp
 
-# Логи сервиса
+# Service logs
 journalctl -u loggermcp -f
 ```
 
-### Обновление
+### Update
 
 ```bash
 sudo apt update && sudo apt upgrade loggermcp
 ```
 
-## Публикация нового релиза (деплой в APT)
+## Publishing a Release (APT deploy)
 
-### Одноразовая настройка
+### One-time setup
 
-1. **GPG-ключ** для подписи репозитория:
+1. **GPG key** for repository signing:
 
 ```bash
 gpg --full-generate-key
@@ -128,15 +147,15 @@ gpg --armor --export-secret-keys YOUR_KEY_ID
 ```
 
 2. **GitHub Secrets** (Settings → Secrets and variables → Actions):
-   - `GPG_PRIVATE_KEY` — приватный ключ (вывод команды выше)
-   - `GPG_PASSPHRASE` — пароль ключа
-   - `GPG_KEY_ID` — ID ключа
+   - `GPG_PRIVATE_KEY` — private key (output of the command above)
+   - `GPG_PASSPHRASE` — key passphrase
+   - `GPG_KEY_ID` — key ID
 
 3. **GitHub Pages** — Settings → Pages → Source: `gh-pages` branch
 
-### Релиз
+### Release
 
-Создайте тег — GitHub Actions автоматически соберёт `.deb` (amd64 + arm64), опубликует APT-репозиторий на GitHub Pages и создаст GitHub Release:
+Create a tag — GitHub Actions will automatically build `.deb` (amd64 + arm64), publish the APT repository to GitHub Pages, and create a GitHub Release:
 
 ```bash
 git tag v0.1.0

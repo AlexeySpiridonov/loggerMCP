@@ -1,19 +1,19 @@
-# Ключ доступа для аутентификации запросов
+# Access key for request authentication
 access_key: "your-secret-key-here"
 
-# Путь к файлу syslog
+# Path to syslog file
 syslog_path: "/var/log/syslog"
 
-# Порт сервера (по умолчанию 7777)
+# Server port (default: 7777)
 port: 7777
 
-# TLS шифрование (true — HTTPS с авто-сертификатом)
+# TLS encryption (true = HTTPS with auto-generated certificate)
 tls: true
 
-# Пути к сертификату и ключу (генерируются автоматически если не существуют)
+# Certificate and key paths (auto-generated if not found)
 # cert_file: "cert.pem"
 # key_file: "key.pem"
 
-# Ключ шифрования ответов (AES-256-GCM). Клиент и сервер должны знать один ключ.
-# Если задан — клиент может передать encrypt: true и получить зашифрованный ответ.
+# Response encryption key (AES-256-GCM). Client and server must share the same key.
+# When set, client can pass encrypt: true to receive an encrypted response.
 encryption_key: "my-secret-encryption-key"
