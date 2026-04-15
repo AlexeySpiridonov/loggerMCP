@@ -1,0 +1,27 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    configure)
+        # Создаём пользователя для сервиса
+        if ! getent passwd loggermcp > /dev/null 2>&1; then
+            adduser --system --group --no-create-home --shell /usr/sbin/nologin loggermcp
+        fi
+
+        # Добавляем в группу adm для чтения syslog
+        usermod -aG adm loggermcp || true
+
+        # Если конфиг не существует — копируем пример
+        if [ ! -f /etc/loggermcp/config.yaml ]; then
+            cp /etc/loggermcp/config.yaml.example /etc/loggermcp/config.yaml
+            chown loggermcp:loggermcp /etc/loggermcp/config.yaml
+            chmod 600 /etc/loggermcp/config.yaml
+            echo "ВНИМАНИЕ: Отредактируйте /etc/loggermcp/config.yaml и укажите access_key"
+        fi
+
+        systemctl daemon-reload
+        systemctl enable loggermcp.service
+        ;;
+esac
+
+exit 0

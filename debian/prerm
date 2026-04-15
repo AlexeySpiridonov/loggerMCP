@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove|purge)
+        systemctl stop loggermcp.service || true
+        systemctl disable loggermcp.service || true
+        ;;
+esac
+
+exit 0

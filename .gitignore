@@ -27,6 +27,16 @@ go.work.sum
 # env file
 .env
 
+# Config with secrets
+config.yaml
+
+# TLS certificates
+cert.pem
+key.pem
+
+# Built binary
+loggerMCP
+
 # Editor/IDE
 # .idea/
 # .vscode/

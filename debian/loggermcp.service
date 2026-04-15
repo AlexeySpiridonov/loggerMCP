@@ -1,0 +1,18 @@
+[Unit]
+Description=loggerMCP - MCP server for Ubuntu syslog
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/loggermcp /etc/loggermcp/config.yaml
+Restart=on-failure
+RestartSec=5
+User=loggermcp
+Group=loggermcp
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
+ReadOnlyPaths=/var/log
+
+[Install]
+WantedBy=multi-user.target

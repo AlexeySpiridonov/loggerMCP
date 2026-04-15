@@ -1,0 +1,142 @@
+name: Build & Publish APT Repo
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build .deb package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          GOARCH=${{ matrix.arch }}
+          
+          # Компиляция
+          CGO_ENABLED=0 GOOS=linux GOARCH=${GOARCH} go build -ldflags="-s -w" -o build/loggermcp .
+          
+          # Копируем бинарник для прямого скачивания
+          cp build/loggermcp "build/loggermcp-linux-${GOARCH}"
+          
+          # Структуру .deb
+          PKG_DIR="build/loggermcp_${VERSION}_${GOARCH}"
+          mkdir -p "${PKG_DIR}/DEBIAN"
+          mkdir -p "${PKG_DIR}/usr/bin"
+          mkdir -p "${PKG_DIR}/etc/loggermcp"
+          mkdir -p "${PKG_DIR}/lib/systemd/system"
+          
+          cp build/loggermcp "${PKG_DIR}/usr/bin/loggermcp"
+          chmod 755 "${PKG_DIR}/usr/bin/loggermcp"
+          cp config.yaml.example "${PKG_DIR}/etc/loggermcp/config.yaml.example"
+          cp debian/loggermcp.service "${PKG_DIR}/lib/systemd/system/loggermcp.service"
+          
+          sed "s/VERSION_PLACEHOLDER/${VERSION}/g" debian/control > "${PKG_DIR}/DEBIAN/control"
+          sed -i "s/Architecture: amd64/Architecture: ${GOARCH}/g" "${PKG_DIR}/DEBIAN/control"
+          
+          cp debian/postinst "${PKG_DIR}/DEBIAN/postinst"
+          cp debian/prerm "${PKG_DIR}/DEBIAN/prerm"
+          chmod 755 "${PKG_DIR}/DEBIAN/postinst"
+          chmod 755 "${PKG_DIR}/DEBIAN/prerm"
+          
+          echo "/etc/loggermcp/config.yaml" > "${PKG_DIR}/DEBIAN/conffiles"
+          
+          dpkg-deb --build "${PKG_DIR}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: |
+            build/*.deb
+            build/loggermcp-linux-*
+
+  publish-apt:
+    needs: build-deb
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: debs
+          merge-multiple: true
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          echo "${{ secrets.GPG_PASSPHRASE }}" > /tmp/gpg-passphrase
+
+      - name: Build APT repository
+        run: |
+          mkdir -p apt-repo/pool/main
+          mkdir -p apt-repo/dists/stable/main/binary-amd64
+          mkdir -p apt-repo/dists/stable/main/binary-arm64
+          
+          # Копируем .deb пакеты
+          cp debs/*.deb apt-repo/pool/main/
+          
+          cd apt-repo
+          
+          # Генерируем Packages для каждой архитектуры
+          for ARCH in amd64 arm64; do
+            dpkg-scanpackages --arch ${ARCH} pool/ > dists/stable/main/binary-${ARCH}/Packages
+            gzip -k dists/stable/main/binary-${ARCH}/Packages
+          done
+          
+          # Генерируем Release
+          cat > dists/stable/Release <<EOF
+          Origin: loggerMCP
+          Label: loggerMCP
+          Suite: stable
+          Codename: stable
+          Architectures: amd64 arm64
+          Components: main
+          Description: loggerMCP APT repository
+          EOF
+          
+          # Считаем хеши
+          cd dists/stable
+          apt-ftparchive release . >> Release
+          
+          # Подписываем GPG
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-file /tmp/gpg-passphrase \
+            --default-key "${{ secrets.GPG_KEY_ID }}" \
+            -abs -o Release.gpg Release
+          
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-file /tmp/gpg-passphrase \
+            --default-key "${{ secrets.GPG_KEY_ID }}" \
+            --clearsign -o InRelease Release
+
+      - name: Export public GPG key
+        run: |
+          gpg --armor --export "${{ secrets.GPG_KEY_ID }}" > apt-repo/public.gpg
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./apt-repo
+          force_orphan: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: debs/*.deb
+          generate_release_notes: true
