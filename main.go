@@ -62,24 +62,24 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// ensureTLSCert генерирует self-signed сертификат если файлы не существуют.
+// ensureTLSCert generates a self-signed certificate if files don't exist.
 func ensureTLSCert(certFile, keyFile string) error {
 	if _, err := os.Stat(certFile); err == nil {
 		if _, err := os.Stat(keyFile); err == nil {
-			return nil // оба файла уже есть
+			return nil // both files already exist
 		}
 	}
 
-	log.Println("Генерация self-signed TLS сертификата...")
+	log.Println("Generating self-signed TLS certificate...")
 
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return fmt.Errorf("генерация ключа: %w", err)
+		return fmt.Errorf("key generation: %w", err)
 	}
 
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return fmt.Errorf("генерация серийного номера: %w", err)
+		return fmt.Errorf("serial number generation: %w", err)
 	}
 
 	template := x509.Certificate{
@@ -89,7 +89,7 @@ func ensureTLSCert(certFile, keyFile string) error {
 			CommonName:   "loggerMCP",
 		},
 		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour), // 10 лет
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour), // 10 years
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
@@ -99,12 +99,12 @@ func ensureTLSCert(certFile, keyFile string) error {
 
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
 	if err != nil {
-		return fmt.Errorf("создание сертификата: %w", err)
+		return fmt.Errorf("certificate creation: %w", err)
 	}
 
 	certOut, err := os.Create(certFile)
 	if err != nil {
-		return fmt.Errorf("запись cert: %w", err)
+		return fmt.Errorf("writing cert: %w", err)
 	}
 	defer certOut.Close()
 	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
@@ -113,7 +113,7 @@ func ensureTLSCert(certFile, keyFile string) error {
 
 	keyOut, err := os.OpenFile(keyFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
-		return fmt.Errorf("запись key: %w", err)
+		return fmt.Errorf("writing key: %w", err)
 	}
 	defer keyOut.Close()
 	keyBytes, err := x509.MarshalECPrivateKey(privateKey)
@@ -124,12 +124,12 @@ func ensureTLSCert(certFile, keyFile string) error {
 		return err
 	}
 
-	log.Printf("Сертификат сохранён: %s, %s", certFile, keyFile)
+	log.Printf("Certificate saved: %s, %s", certFile, keyFile)
 	return nil
 }
 
-// parseSyslogTime парсит временную метку из строки syslog.
-// Формат: "Apr 15 10:30:00"
+// parseSyslogTime parses a timestamp from a syslog line.
+// Format: "Apr 15 10:30:00"
 func parseSyslogTime(line string) (time.Time, bool) {
 	if len(line) < 15 {
 		return time.Time{}, false
@@ -147,8 +147,8 @@ func parseSyslogTime(line string) (time.Time, bool) {
 	return t, true
 }
 
-// matchWildcard проверяет соответствие текста паттерну с поддержкой * (звёздочка).
-// Например: "error*disk" матчит "error on disk", "error: disk full" и т. д.
+// matchWildcard checks if text matches a pattern with * (wildcard) support.
+// Example: "error*disk" matches "error on disk", "error: disk full", etc.
 func matchWildcard(pattern, text string) bool {
 	pattern = strings.ToLower(pattern)
 	text = strings.ToLower(text)
@@ -178,7 +178,7 @@ func matchWildcard(pattern, text string) bool {
 	return true
 }
 
-// parseInputDate разбирает дату из пользовательского ввода.
+// parseInputDate parses a date from user input.
 func parseInputDate(s string) (time.Time, error) {
 	formats := []string{
 		"2006-01-02T15:04:05",
@@ -190,12 +190,12 @@ func parseInputDate(s string) (time.Time, error) {
 			return t, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("неподдерживаемый формат даты: %s (используйте 2006-01-02 или 2006-01-02T15:04:05)", s)
+	return time.Time{}, fmt.Errorf("unsupported date format: %s (use 2006-01-02 or 2006-01-02T15:04:05)", s)
 }
 
-// encryptAESGCM шифрует текст с помощью AES-256-GCM.
-// Ключ хешируется через SHA-256 для получения ровно 32 байт.
-// Возвращает base64(nonce + ciphertext).
+// encryptAESGCM encrypts text using AES-256-GCM.
+// The key is hashed via SHA-256 to produce exactly 32 bytes.
+// Returns base64(nonce + ciphertext).
 func encryptAESGCM(plaintext, key string) (string, error) {
 	keyHash := sha256.Sum256([]byte(key))
 	block, err := aes.NewCipher(keyHash[:])
@@ -222,7 +222,7 @@ func main() {
 
 	cfg, err := loadConfig(configPath)
 	if err != nil {
-		log.Fatalf("Ошибка загрузки конфига: %v", err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	s := server.NewMCPServer(
@@ -232,28 +232,28 @@ func main() {
 	)
 
 	readLogsTool := mcp.NewTool("read_logs",
-		mcp.WithDescription("Чтение и поиск записей syslog с фильтрацией по дате, паттерну и пагинацией"),
+		mcp.WithDescription("Read and search syslog entries with date filtering, pattern matching, and pagination"),
 		mcp.WithString("access_key",
 			mcp.Required(),
-			mcp.Description("Ключ доступа для аутентификации"),
+			mcp.Description("Access key for authentication"),
 		),
 		mcp.WithString("start_date",
-			mcp.Description("Начальная дата фильтра (формат: 2006-01-02 или 2006-01-02T15:04:05)"),
+			mcp.Description("Start date filter (format: 2006-01-02 or 2006-01-02T15:04:05)"),
 		),
 		mcp.WithString("end_date",
-			mcp.Description("Конечная дата фильтра (формат: 2006-01-02 или 2006-01-02T15:04:05)"),
+			mcp.Description("End date filter (format: 2006-01-02 or 2006-01-02T15:04:05)"),
 		),
 		mcp.WithString("pattern",
-			mcp.Description("Фильтр по подстроке с поддержкой * (звёздочки). Пример: 'error*disk'"),
+			mcp.Description("Substring filter with * (wildcard) support. Example: 'error*disk'"),
 		),
 		mcp.WithNumber("page",
-			mcp.Description("Номер страницы (по умолчанию: 1)"),
+			mcp.Description("Page number (default: 1)"),
 		),
 		mcp.WithNumber("page_size",
-			mcp.Description("Количество записей на странице (по умолчанию: 100, макс: 1000)"),
+			mcp.Description("Entries per page (default: 100, max: 1000)"),
 		),
 		mcp.WithBoolean("encrypt",
-			mcp.Description("Зашифровать ответ AES-256-GCM (ключ из конфига)"),
+			mcp.Description("Encrypt response with AES-256-GCM (key from config)"),
 		),
 	)
 
@@ -272,12 +272,12 @@ func main() {
 
 	if cfg.TLS {
 		if err := ensureTLSCert(cfg.CertFile, cfg.KeyFile); err != nil {
-			log.Fatalf("Ошибка TLS: %v", err)
+			log.Fatalf("TLS error: %v", err)
 		}
 
 		tlsCert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 		if err != nil {
-			log.Fatalf("Ошибка загрузки сертификата: %v", err)
+			log.Fatalf("Failed to load certificate: %v", err)
 		}
 
 		httpServer := &http.Server{
@@ -289,16 +289,16 @@ func main() {
 			},
 		}
 
-		log.Printf("loggerMCP запущен на https://0.0.0.0:%d (TLS)", cfg.Port)
-		log.Printf("Файл логов: %s", cfg.SyslogPath)
+		log.Printf("loggerMCP started on https://0.0.0.0:%d (TLS)", cfg.Port)
+		log.Printf("Log file: %s", cfg.SyslogPath)
 		if err := httpServer.ListenAndServeTLS("", ""); err != nil {
-			log.Fatalf("Ошибка сервера: %v", err)
+			log.Fatalf("Server error: %v", err)
 		}
 	} else {
-		log.Printf("loggerMCP запущен на http://0.0.0.0:%d", cfg.Port)
-		log.Printf("Файл логов: %s", cfg.SyslogPath)
+		log.Printf("loggerMCP started on http://0.0.0.0:%d", cfg.Port)
+		log.Printf("Log file: %s", cfg.SyslogPath)
 		if err := sseServer.Start(addr); err != nil {
-			log.Fatalf("Ошибка сервера: %v", err)
+			log.Fatalf("Server error: %v", err)
 		}
 	}
 }
@@ -307,13 +307,13 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := request.GetArguments()
 
-		// Проверка ключа доступа
+		// Verify access key
 		key, _ := args["access_key"].(string)
 		if key != cfg.AccessKey {
-			return mcp.NewToolResultError("unauthorized: неверный ключ доступа"), nil
+			return mcp.NewToolResultError("unauthorized: invalid access key"), nil
 		}
 
-		// Параметры пагинации
+		// Pagination parameters
 		page := 1
 		pageSize := 100
 		if p, ok := args["page"].(float64); ok && p > 0 {
@@ -326,7 +326,7 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 			}
 		}
 
-		// Парсинг дат
+		// Parse dates
 		var startDate, endDate time.Time
 		var hasStart, hasEnd bool
 
@@ -349,10 +349,10 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 
 		pattern, _ := args["pattern"].(string)
 
-		// Чтение и фильтрация лог-файла
+		// Read and filter log file
 		file, err := os.Open(cfg.SyslogPath)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("не удалось открыть лог-файл: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("failed to open log file: %v", err)), nil
 		}
 		defer file.Close()
 
@@ -366,7 +366,7 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 				continue
 			}
 
-			// Фильтр по дате
+			// Date filter
 			if hasStart || hasEnd {
 				logTime, ok := parseSyslogTime(line)
 				if ok {
@@ -379,7 +379,7 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 				}
 			}
 
-			// Фильтр по паттерну
+			// Pattern filter
 			if pattern != "" && !matchWildcard(pattern, line) {
 				continue
 			}
@@ -388,10 +388,10 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 		}
 
 		if err := scanner.Err(); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("ошибка чтения лог-файла: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("error reading log file: %v", err)), nil
 		}
 
-		// Пагинация
+		// Pagination
 		total := len(filtered)
 		totalPages := (total + pageSize - 1) / pageSize
 		if totalPages == 0 {
@@ -408,7 +408,7 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 		}
 
 		var result strings.Builder
-		result.WriteString(fmt.Sprintf("Всего: %d записей | Страница %d/%d (размер: %d)\n", total, page, totalPages, pageSize))
+		result.WriteString(fmt.Sprintf("Total: %d entries | Page %d/%d (size: %d)\n", total, page, totalPages, pageSize))
 		result.WriteString("---\n")
 
 		if total > 0 {
@@ -417,20 +417,20 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 				result.WriteString("\n")
 			}
 		} else {
-			result.WriteString("Записи не найдены.\n")
+			result.WriteString("No entries found.\n")
 		}
 
 		text := result.String()
 
-		// Шифрование если запрошено и ключ настроен
+		// Encrypt if requested and key is configured
 		wantEncrypt, _ := args["encrypt"].(bool)
 		if wantEncrypt {
 			if cfg.EncryptionKey == "" {
-				return mcp.NewToolResultError("encryption_key не задан в конфиге сервера"), nil
+				return mcp.NewToolResultError("encryption_key is not set in server config"), nil
 			}
 			encrypted, err := encryptAESGCM(text, cfg.EncryptionKey)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("ошибка шифрования: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Sprintf("encryption error: %v", err)), nil
 			}
 			return mcp.NewToolResultText("ENC:" + encrypted), nil
 		}
