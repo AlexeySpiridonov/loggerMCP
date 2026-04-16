@@ -1,26 +1,50 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
+SERVICE_NAME="loggermcp"
+CONFIG_DIR="/etc/loggermcp"
+CONFIG_FILE="${CONFIG_DIR}/config.yaml"
+EXAMPLE_CONFIG_FILE="${CONFIG_DIR}/config.yaml.example"
+STATE_DIR="/var/lib/loggermcp"
+
+generate_secret() {
+    od -An -N24 -tx1 /dev/urandom | tr -d ' \n'
+    echo
+}
 
 case "$1" in
     configure)
         # Create service user
-        if ! getent passwd loggermcp > /dev/null 2>&1; then
-            adduser --system --group --no-create-home --shell /usr/sbin/nologin loggermcp
+        if ! getent passwd "$SERVICE_NAME" > /dev/null 2>&1; then
+            adduser --system --group --no-create-home --shell /usr/sbin/nologin "$SERVICE_NAME"
         fi
 
         # Add to adm group for syslog access
-        usermod -aG adm loggermcp || true
+        usermod -aG adm "$SERVICE_NAME" || true
+
+        install -d -m 0750 -o "$SERVICE_NAME" -g "$SERVICE_NAME" "$STATE_DIR"
 
         # Copy example config if config doesn't exist
-        if [ ! -f /etc/loggermcp/config.yaml ]; then
-            cp /etc/loggermcp/config.yaml.example /etc/loggermcp/config.yaml
-            chown loggermcp:loggermcp /etc/loggermcp/config.yaml
-            chmod 600 /etc/loggermcp/config.yaml
-            echo "WARNING: Edit /etc/loggermcp/config.yaml and set access_key"
+        if [ ! -f "$CONFIG_FILE" ]; then
+            cp "$EXAMPLE_CONFIG_FILE" "$CONFIG_FILE"
+
+            access_key="$(generate_secret)"
+            encryption_key="$(generate_secret)"
+
+            sed -i \
+                -e "s|^access_key: .*|access_key: \"${access_key}\"|" \
+                -e "s|^encryption_key: .*|encryption_key: \"${encryption_key}\"|" \
+                "$CONFIG_FILE"
+
+            chown "$SERVICE_NAME":"$SERVICE_NAME" "$CONFIG_FILE"
+            chmod 600 "$CONFIG_FILE"
+            echo "Generated access key and encryption key in ${CONFIG_FILE}"
         fi
 
-        systemctl daemon-reload
-        systemctl enable loggermcp.service
+        if command -v systemctl > /dev/null 2>&1; then
+            systemctl daemon-reload
+            systemctl enable "${SERVICE_NAME}.service"
+        fi
         ;;
 esac
 

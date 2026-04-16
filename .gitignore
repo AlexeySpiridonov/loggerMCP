@@ -34,6 +34,9 @@ config.yaml
 cert.pem
 key.pem
 
+# Build artifacts
+build/
+
 # Built binary
 loggerMCP
 

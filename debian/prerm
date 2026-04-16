@@ -1,10 +1,15 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
+SERVICE_NAME="loggermcp"
 
 case "$1" in
     remove|purge)
-        systemctl stop loggermcp.service || true
-        systemctl disable loggermcp.service || true
+        if command -v systemctl > /dev/null 2>&1; then
+            systemctl stop "${SERVICE_NAME}.service" || true
+            systemctl disable "${SERVICE_NAME}.service" || true
+            systemctl daemon-reload || true
+        fi
         ;;
 esac
 

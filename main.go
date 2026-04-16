@@ -9,12 +9,14 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -29,9 +31,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const serverName = "loggerMCP"
-const serverVersion = "1.0.0"
-const authVerifiedHeader = "X-LoggerMCP-Authorized"
+const (
+	serverName         = "loggerMCP"
+	serverVersion      = "1.0.0"
+	authVerifiedHeader = "X-LoggerMCP-Authorized"
+
+	defaultSyslogPath       = "/var/log/syslog"
+	defaultPort             = 7777
+	defaultCertFile         = "cert.pem"
+	defaultKeyFile          = "key.pem"
+	defaultManifestName     = "logger.local/mcp"
+	defaultManifestDesc     = "Remote MCP server for Ubuntu syslog search workflows."
+	defaultManifestPath     = "/manifest"
+	defaultManifestType     = "sse"
+	defaultHealthPath       = "/health"
+	defaultPage             = 1
+	defaultPageSize         = 100
+	maxPageSize             = 1000
+	timeFormatDateTimeISO   = "2006-01-02T15:04:05"
+	timeFormatDateTimeSpace = "2006-01-02 15:04:05"
+	timeFormatDateOnly      = "2006-01-02"
+)
 
 type Config struct {
 	AccessKey           string `yaml:"access_key"`
@@ -77,49 +97,75 @@ type healthResponse struct {
 	RemoteURL         string `json:"remote_url"`
 }
 
+type readLogsParams struct {
+	Page      int
+	PageSize  int
+	StartDate time.Time
+	EndDate   time.Time
+	HasStart  bool
+	HasEnd    bool
+	Pattern   string
+	Encrypt   bool
+}
+
+func defaultConfig() Config {
+	return Config{
+		SyslogPath:          defaultSyslogPath,
+		Port:                defaultPort,
+		CertFile:            defaultCertFile,
+		KeyFile:             defaultKeyFile,
+		ManifestName:        defaultManifestName,
+		ManifestTitle:       serverName,
+		ManifestDescription: defaultManifestDesc,
+		ManifestVersion:     serverVersion,
+		ManifestPath:        defaultManifestPath,
+		ManifestRemoteType:  defaultManifestType,
+		HealthPath:          defaultHealthPath,
+	}
+}
+
 func loadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var cfg Config
+	cfg := defaultConfig()
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	if cfg.Port == 0 {
-		cfg.Port = 7777
-	}
-	if cfg.SyslogPath == "" {
-		cfg.SyslogPath = "/var/log/syslog"
-	}
-	if cfg.CertFile == "" {
-		cfg.CertFile = "cert.pem"
-	}
-	if cfg.KeyFile == "" {
-		cfg.KeyFile = "key.pem"
-	}
-	if cfg.ManifestName == "" {
-		cfg.ManifestName = "logger.local/mcp"
-	}
-	if cfg.ManifestTitle == "" {
-		cfg.ManifestTitle = serverName
-	}
-	if cfg.ManifestDescription == "" {
-		cfg.ManifestDescription = "Remote MCP server for Ubuntu syslog search workflows."
-	}
-	if cfg.ManifestVersion == "" {
-		cfg.ManifestVersion = serverVersion
-	}
-	if cfg.ManifestPath == "" {
-		cfg.ManifestPath = "/manifest"
-	}
-	if cfg.ManifestRemoteType == "" {
-		cfg.ManifestRemoteType = "sse"
-	}
-	if cfg.HealthPath == "" {
-		cfg.HealthPath = "/health"
+	cfg.ManifestPath = normalizeHTTPPath(cfg.ManifestPath, defaultManifestPath)
+	cfg.HealthPath = normalizeHTTPPath(cfg.HealthPath, defaultHealthPath)
+	cfg.PublicBaseURL = strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
+	cfg.ManifestRemoteType = strings.TrimSpace(cfg.ManifestRemoteType)
+	cfg.ManifestRemoteURL = strings.TrimSpace(cfg.ManifestRemoteURL)
+	if err := validateConfig(&cfg); err != nil {
+		return nil, err
 	}
 	return &cfg, nil
+}
+
+func normalizeHTTPPath(path, fallback string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fallback
+	}
+	if !strings.HasPrefix(path, "/") {
+		return "/" + path
+	}
+	return path
+}
+
+func validateConfig(cfg *Config) error {
+	if cfg.ManifestPath == cfg.HealthPath {
+		return errors.New("manifest_path and health_path must be different")
+	}
+	if cfg.Port <= 0 || cfg.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535, got %d", cfg.Port)
+	}
+	if cfg.ManifestRemoteType != defaultManifestType && cfg.ManifestRemoteURL == "" {
+		return fmt.Errorf("manifest_remote_url is required when manifest_remote_type is %q", cfg.ManifestRemoteType)
+	}
+	return nil
 }
 
 func serverScheme(cfg *Config) string {
@@ -147,7 +193,10 @@ func isAccessKeyValid(cfg *Config, accessKey string) bool {
 	if cfg.AccessKey == "" {
 		return true
 	}
-	return accessKey == cfg.AccessKey
+	if len(accessKey) != len(cfg.AccessKey) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(accessKey), []byte(cfg.AccessKey)) == 1
 }
 
 func extractAccessKeyFromHeaders(headers http.Header) string {
@@ -217,6 +266,18 @@ func buildManifest(cfg *Config) manifestResponse {
 	}
 }
 
+func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(data)
+}
+
 func manifestHandler(cfg *Config) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -224,11 +285,17 @@ func manifestHandler(cfg *Config) http.Handler {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(buildManifest(cfg)); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+		writeJSON(w, http.StatusOK, buildManifest(cfg))
 	})
+}
+
+func canAccessLogFile(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
 }
 
 func healthHandler(cfg *Config) http.Handler {
@@ -238,11 +305,7 @@ func healthHandler(cfg *Config) http.Handler {
 			return
 		}
 
-		logFileAccessible := false
-		if file, err := os.Open(cfg.SyslogPath); err == nil {
-			logFileAccessible = true
-			file.Close()
-		}
+		logFileAccessible := canAccessLogFile(cfg.SyslogPath)
 
 		status := "ok"
 		statusCode := http.StatusOK
@@ -263,11 +326,7 @@ func healthHandler(cfg *Config) http.Handler {
 			RemoteURL:         manifestRemoteURL(cfg),
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(statusCode)
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+		writeJSON(w, statusCode, response)
 	})
 }
 
@@ -351,9 +410,19 @@ func parseSyslogTime(line string) (time.Time, bool) {
 			return time.Time{}, false
 		}
 	}
-	now := time.Now()
-	t = t.AddDate(now.Year(), 0, 0)
+	t = withMostLikelyYear(t, time.Now())
 	return t, true
+}
+
+func withMostLikelyYear(ts, now time.Time) time.Time {
+	currentYear := time.Date(now.Year(), ts.Month(), ts.Day(), ts.Hour(), ts.Minute(), ts.Second(), 0, now.Location())
+	if currentYear.After(now.Add(24 * time.Hour)) {
+		return currentYear.AddDate(-1, 0, 0)
+	}
+	if currentYear.Before(now.AddDate(0, -11, 0)) {
+		return currentYear.AddDate(1, 0, 0)
+	}
+	return currentYear
 }
 
 // matchWildcard checks if text matches a pattern with * (wildcard) support.
@@ -390,9 +459,9 @@ func matchWildcard(pattern, text string) bool {
 // parseInputDate parses a date from user input.
 func parseInputDate(s string) (time.Time, error) {
 	formats := []string{
-		"2006-01-02T15:04:05",
-		"2006-01-02 15:04:05",
-		"2006-01-02",
+		timeFormatDateTimeISO,
+		timeFormatDateTimeSpace,
+		timeFormatDateOnly,
 	}
 	for _, f := range formats {
 		if t, err := time.Parse(f, s); err == nil {
@@ -421,6 +490,58 @@ func encryptAESGCM(plaintext, key string) (string, error) {
 	}
 	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+func parseOptionalDateArg(args map[string]any, key string) (time.Time, bool, error) {
+	raw, _ := args[key].(string)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false, nil
+	}
+
+	parsed, err := parseInputDate(raw)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return parsed, true, nil
+}
+
+func parsePositiveIntArg(args map[string]any, key string, defaultValue, maxValue int) int {
+	value, ok := args[key].(float64)
+	if !ok || value <= 0 {
+		return defaultValue
+	}
+
+	parsed := int(value)
+	if maxValue > 0 && parsed > maxValue {
+		return maxValue
+	}
+	return parsed
+}
+
+func parseReadLogsParams(args map[string]any) (readLogsParams, error) {
+	params := readLogsParams{
+		Page:     parsePositiveIntArg(args, "page", defaultPage, 0),
+		PageSize: parsePositiveIntArg(args, "page_size", defaultPageSize, maxPageSize),
+	}
+
+	startDate, hasStart, err := parseOptionalDateArg(args, "start_date")
+	if err != nil {
+		return params, fmt.Errorf("invalid start_date: %w", err)
+	}
+	endDate, hasEnd, err := parseOptionalDateArg(args, "end_date")
+	if err != nil {
+		return params, fmt.Errorf("invalid end_date: %w", err)
+	}
+
+	params.StartDate = startDate
+	params.EndDate = endDate
+	params.HasStart = hasStart
+	params.HasEnd = hasEnd
+	params.Pattern, _ = args["pattern"].(string)
+	params.Pattern = strings.TrimSpace(params.Pattern)
+	params.Encrypt, _ = args["encrypt"].(bool)
+	return params, nil
 }
 
 func main() {
@@ -530,41 +651,10 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 			return mcp.NewToolResultError("unauthorized: invalid access key"), nil
 		}
 
-		// Pagination parameters
-		page := 1
-		pageSize := 100
-		if p, ok := args["page"].(float64); ok && p > 0 {
-			page = int(p)
+		params, err := parseReadLogsParams(args)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
-		if ps, ok := args["page_size"].(float64); ok && ps > 0 {
-			pageSize = int(ps)
-			if pageSize > 1000 {
-				pageSize = 1000
-			}
-		}
-
-		// Parse dates
-		var startDate, endDate time.Time
-		var hasStart, hasEnd bool
-
-		if sd, ok := args["start_date"].(string); ok && sd != "" {
-			t, err := parseInputDate(sd)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("invalid start_date: %v", err)), nil
-			}
-			startDate = t
-			hasStart = true
-		}
-		if ed, ok := args["end_date"].(string); ok && ed != "" {
-			t, err := parseInputDate(ed)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("invalid end_date: %v", err)), nil
-			}
-			endDate = t
-			hasEnd = true
-		}
-
-		pattern, _ := args["pattern"].(string)
 
 		// Read and filter log file
 		file, err := os.Open(cfg.SyslogPath)
@@ -584,20 +674,20 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 			}
 
 			// Date filter
-			if hasStart || hasEnd {
+			if params.HasStart || params.HasEnd {
 				logTime, ok := parseSyslogTime(line)
 				if ok {
-					if hasStart && logTime.Before(startDate) {
+					if params.HasStart && logTime.Before(params.StartDate) {
 						continue
 					}
-					if hasEnd && logTime.After(endDate) {
+					if params.HasEnd && logTime.After(params.EndDate) {
 						continue
 					}
 				}
 			}
 
 			// Pattern filter
-			if pattern != "" && !matchWildcard(pattern, line) {
+			if params.Pattern != "" && !matchWildcard(params.Pattern, line) {
 				continue
 			}
 
@@ -610,22 +700,22 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 
 		// Pagination
 		total := len(filtered)
-		totalPages := (total + pageSize - 1) / pageSize
+		totalPages := (total + params.PageSize - 1) / params.PageSize
 		if totalPages == 0 {
 			totalPages = 1
 		}
-		if page > totalPages {
-			page = totalPages
+		if params.Page > totalPages {
+			params.Page = totalPages
 		}
 
-		start := (page - 1) * pageSize
-		end := start + pageSize
+		start := (params.Page - 1) * params.PageSize
+		end := start + params.PageSize
 		if end > total {
 			end = total
 		}
 
 		var result strings.Builder
-		result.WriteString(fmt.Sprintf("Total: %d entries | Page %d/%d (size: %d)\n", total, page, totalPages, pageSize))
+		result.WriteString(fmt.Sprintf("Total: %d entries | Page %d/%d (size: %d)\n", total, params.Page, totalPages, params.PageSize))
 		result.WriteString("---\n")
 
 		if total > 0 {
@@ -640,8 +730,7 @@ func readLogsHandler(cfg *Config) server.ToolHandlerFunc {
 		text := result.String()
 
 		// Encrypt if requested and key is configured
-		wantEncrypt, _ := args["encrypt"].(bool)
-		if wantEncrypt {
+		if params.Encrypt {
 			if cfg.EncryptionKey == "" {
 				return mcp.NewToolResultError("encryption_key is not set in server config"), nil
 			}

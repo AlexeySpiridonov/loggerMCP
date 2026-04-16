@@ -9,9 +9,18 @@ Restart=on-failure
 RestartSec=5
 User=loggermcp
 Group=loggermcp
-ProtectSystem=full
+WorkingDirectory=/var/lib/loggermcp
+StateDirectory=loggermcp
+PrivateTmp=true
+ProtectSystem=strict
 ProtectHome=true
 NoNewPrivileges=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
 ReadOnlyPaths=/var/log
 
 [Install]

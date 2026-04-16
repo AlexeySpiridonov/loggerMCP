@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 VERSION="${1:-0.1.0}"
 ARCH="${2:-amd64}"
@@ -10,7 +10,9 @@ echo "==> Building ${PKG_NAME} v${VERSION} (${ARCH})"
 
 # Build Go binary
 echo "==> Compiling..."
+mkdir -p build
 CGO_ENABLED=0 GOOS=linux GOARCH=${ARCH} go build -ldflags="-s -w" -o build/loggermcp .
+cp build/loggermcp "build/loggermcp-linux-${ARCH}"
 
 # Create .deb package structure
 echo "==> Creating package..."

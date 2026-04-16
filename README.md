@@ -1,87 +1,96 @@
 # loggerMCP
 
-Go MCP server for reading and searching Ubuntu syslog.
+`loggerMCP` is a Go MCP server for reading and searching Ubuntu syslog files.
 
-## Features
+It exposes an SSE MCP endpoint, a public manifest endpoint, and a health endpoint. The server supports transport-level access-key authentication, optional TLS, pagination, date filtering, wildcard matching, and optional AES-256-GCM response encryption.
 
-- Read syslog entries with pagination
-- Filter by date range (start/end)
-- Substring search with wildcard (`*`) support
-- Access key authentication
-- AES-256-GCM response encryption
-- TLS with auto-generated self-signed certificate
-- SSE transport on port 7777
+## Endpoints
 
-## Quick Install
+- `/sse`: MCP SSE transport endpoint.
+- `/manifest`: public MCP manifest generated from config.
+- `/health`: public health endpoint for readiness and monitoring.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/AlexeySpiridonov/loggerMCP/main/install.sh | sudo bash
-```
+## Quick Start
 
-After installation:
-
-```bash
-# Set access key
-sudo nano /etc/loggermcp/config.yaml
-
-# Start
-sudo systemctl start loggermcp
-
-# Check status
-sudo systemctl status loggermcp
-```
-
-## Configuration
+### Local build
 
 ```bash
 cp config.yaml.example config.yaml
+go build -o loggerMCP .
+./loggerMCP
 ```
 
-Edit `config.yaml`:
+Minimal config:
 
 ```yaml
 access_key: "your-secret-key"
 syslog_path: "/var/log/syslog"
 port: 7777
+tls: false
 ```
 
-`access_key` is the transport auth secret. The server accepts it in any of these forms:
+### One-line install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AlexeySpiridonov/loggerMCP/main/install.sh | sudo bash
+```
+
+The installer creates `/etc/loggermcp/config.yaml`, generates random `access_key` and `encryption_key` values, installs the systemd service, and keeps runtime state in `/var/lib/loggermcp`.
+
+After installation:
+
+```bash
+sudo nano /etc/loggermcp/config.yaml
+sudo systemctl start loggermcp
+sudo systemctl status loggermcp
+```
+
+## Configuration Reference
+
+- `access_key`: transport authentication secret.
+- `syslog_path`: absolute path to the log file to read.
+- `port`: HTTP listen port.
+- `tls`: enable HTTPS.
+- `cert_file`: certificate path. Relative paths are resolved from the current working directory.
+- `key_file`: private key path. Relative paths are resolved from the current working directory.
+- `encryption_key`: optional key for `read_logs` response encryption.
+- `public_base_url`: optional public URL used in manifest and health responses.
+- `manifest_name`: manifest `name` field.
+- `manifest_title`: manifest `title` field.
+- `manifest_description`: manifest `description` field.
+- `manifest_version`: manifest `version` field.
+- `manifest_path`: HTTP path for the manifest endpoint.
+- `manifest_remote_type`: manifest remote type. The built-in server transport is `sse`.
+- `manifest_remote_url`: optional explicit remote URL override.
+- `health_path`: HTTP path for the health endpoint.
+
+Example config:
+
+```yaml
+access_key: "your-secret-key"
+syslog_path: "/var/log/syslog"
+port: 7777
+tls: true
+encryption_key: ""
+# public_base_url: "https://logger.example.com"
+manifest_name: "logger.local/mcp"
+manifest_title: "loggerMCP"
+manifest_description: "Remote MCP server for Ubuntu syslog search workflows."
+manifest_version: "1.0.0"
+manifest_path: "/manifest"
+manifest_remote_type: "sse"
+health_path: "/health"
+```
+
+## Authentication
+
+`access_key` is enforced at the transport level. The server accepts it in any of these forms:
 
 - `Authorization: Bearer your-secret-key`
 - `X-Access-Key: your-secret-key`
 - `?access_key=your-secret-key` on the SSE URL
 
-## Build & Run
-
-```bash
-go build -o loggerMCP .
-./loggerMCP
-# or with a custom config path:
-./loggerMCP /path/to/config.yaml
-```
-
-The server also exposes:
-
-- `/manifest` — config-driven MCP manifest JSON
-- `/health` — JSON health status for monitoring and readiness checks
-
-## MCP Tool: `read_logs`
-
-| Parameter   | Type    | Required | Description                                                    |
-|-------------|---------|----------|----------------------------------------------------------------|
-| access_key  | string  | no       | Legacy fallback. Optional when transport auth is used.         |
-| start_date  | string  | no       | Start date (`2006-01-02` or `2006-01-02T15:04:05`)            |
-| end_date    | string  | no       | End date (`2006-01-02` or `2006-01-02T15:04:05`)              |
-| pattern     | string  | no       | Substring filter, `*` = wildcard. Example: `error*disk`        |
-| page        | number  | no       | Page number (default: 1)                                       |
-| page_size   | number  | no       | Entries per page (default: 100, max: 1000)                     |
-| encrypt     | boolean | no       | Encrypt response with AES-256-GCM (key from config)            |
-
-## Access Key Usage
-
-Recommended client setup is transport-level auth, so the key is sent once on connection.
-
-Header-based example:
+Recommended client config with a header:
 
 ```json
 {
@@ -92,7 +101,7 @@ Header-based example:
 }
 ```
 
-Query-parameter example:
+Alternative client config with a query parameter:
 
 ```json
 {
@@ -100,21 +109,31 @@ Query-parameter example:
 }
 ```
 
-If you cannot set transport headers or query params, the `read_logs` tool still accepts `access_key` in tool arguments as a legacy fallback.
+The `read_logs` tool also accepts `access_key` as a legacy fallback when the client cannot set transport headers or query parameters.
 
 ## TLS
 
-Set `tls: true` in `config.yaml` — the server will auto-generate a self-signed certificate on first run. Or provide your own:
+Set `tls: true` to enable HTTPS. If `cert_file` and `key_file` do not exist, the server auto-generates a self-signed certificate.
 
-```yaml
-tls: true
-cert_file: "/path/to/cert.pem"
-key_file: "/path/to/key.pem"
-```
+When running under the packaged systemd service, relative certificate paths resolve from `/var/lib/loggermcp`.
 
-## Manifest & Health
+## MCP Tool: `read_logs`
 
-The manifest is served dynamically from config and matches this shape:
+Parameters:
+
+- `access_key` (`string`, optional): legacy fallback access key.
+- `start_date` (`string`, optional): `2006-01-02` or `2006-01-02T15:04:05`.
+- `end_date` (`string`, optional): `2006-01-02` or `2006-01-02T15:04:05`.
+- `pattern` (`string`, optional): wildcard search string such as `error*disk`.
+- `page` (`number`, optional): page number, default `1`.
+- `page_size` (`number`, optional): entries per page, default `100`, max `1000`.
+- `encrypt` (`boolean`, optional): encrypt the returned payload with AES-256-GCM.
+
+## Manifest and Health
+
+The live manifest is served from `/manifest` and is generated from config.
+
+Example manifest shape:
 
 ```json
 {
@@ -131,103 +150,98 @@ The manifest is served dynamically from config and matches this shape:
 }
 ```
 
-Relevant config fields:
+Health example:
 
-```yaml
-public_base_url: "https://logger.example.com"
-manifest_name: "logger.local/mcp"
-manifest_title: "loggerMCP"
-manifest_description: "Remote MCP server for Ubuntu syslog search workflows."
-manifest_version: "1.0.0"
-manifest_path: "/manifest"
-manifest_remote_type: "sse"
-health_path: "/health"
+```bash
+curl -fsSL http://localhost:7777/health
 ```
 
-The public manifest does not include the secret. Configure the access key locally in the MCP client using headers or a query parameter.
+`/health` returns JSON and reports `degraded` with HTTP `503` when the configured log file cannot be opened.
 
-## Encryption
+The public manifest does not include secrets. Configure access keys in the MCP client, not in the manifest.
 
-Set `encryption_key` in config. When a client passes `encrypt: true`, the response is encrypted with AES-256-GCM and returned as `ENC:<base64>`.
+The repository also includes [mcp.json](mcp.json) as a static manifest example matching the default server shape.
 
-Decryption example (Python):
+## Response Encryption
+
+Set `encryption_key` in config to enable encrypted responses for `read_logs` when the client passes `encrypt: true`.
+
+Encrypted responses are returned as `ENC:<base64>`, where the payload is `nonce + ciphertext` encrypted with AES-256-GCM.
+
+Python decryption example:
 
 ```python
-import base64, hashlib
+import base64
+import hashlib
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 data = base64.b64decode(response.removeprefix("ENC:"))
 key = hashlib.sha256(b"my-secret-encryption-key").digest()
-gcm = AESGCM(key)
-plaintext = gcm.decrypt(data[:12], data[12:], None).decode()
+plaintext = AESGCM(key).decrypt(data[:12], data[12:], None).decode()
 ```
 
 ## Install via APT
 
-### Add repository
+Add the repository and install the package:
 
 ```bash
-# Import GPG key
 curl -fsSL https://AlexeySpiridonov.github.io/loggerMCP/public.gpg \
   | sudo gpg --dearmor -o /usr/share/keyrings/loggermcp.gpg
 
-# Add source
 echo "deb [signed-by=/usr/share/keyrings/loggermcp.gpg] https://AlexeySpiridonov.github.io/loggerMCP stable main" \
   | sudo tee /etc/apt/sources.list.d/loggermcp.list
 
-# Install
 sudo apt update
 sudo apt install loggermcp
 ```
 
-After installation:
+Installed paths:
+
 - Binary: `/usr/bin/loggermcp`
-- Config: `/etc/loggermcp/config.yaml` (created from example, **edit `access_key`**)
-- Systemd service: `loggermcp.service`
+- Config: `/etc/loggermcp/config.yaml`
+- Service: `loggermcp.service`
+- Runtime state: `/var/lib/loggermcp`
+
+Useful commands:
 
 ```bash
-# Edit config
 sudo nano /etc/loggermcp/config.yaml
-
-# Start
 sudo systemctl start loggermcp
-
-# Check status
 sudo systemctl status loggermcp
-
-# Service logs
 journalctl -u loggermcp -f
 ```
 
-### Update
+Update with:
 
 ```bash
-sudo apt update && sudo apt upgrade loggermcp
+sudo apt update
+sudo apt upgrade loggermcp
 ```
 
-## Publishing a Release (APT deploy)
+## Publishing Releases
 
-### One-time setup
+One-time setup:
 
-1. **GPG key** for repository signing:
+1. Create a GPG key for repository signing.
 
 ```bash
 gpg --full-generate-key
 gpg --armor --export-secret-keys YOUR_KEY_ID
 ```
 
-2. **GitHub Secrets** (Settings → Secrets and variables → Actions):
-   - `GPG_PRIVATE_KEY` — private key (output of the command above)
-   - `GPG_PASSPHRASE` — key passphrase
-   - `GPG_KEY_ID` — key ID
+1. Add GitHub Actions secrets:
 
-3. **GitHub Pages** — Settings → Pages → Source: `gh-pages` branch
+- `GPG_PRIVATE_KEY`
+- `GPG_PASSPHRASE`
+- `GPG_KEY_ID`
 
-### Release
+1. Enable GitHub Pages and point it at the `gh-pages` branch.
 
-Create a tag — GitHub Actions will automatically build `.deb` (amd64 + arm64), publish the APT repository to GitHub Pages, and create a GitHub Release:
+Release flow:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+The workflow builds `.deb` packages for `amd64` and `arm64`, publishes the APT repository to GitHub Pages, and attaches both `.deb` packages and standalone Linux binaries to the GitHub release.

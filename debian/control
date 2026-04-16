@@ -5,6 +5,6 @@ Priority: optional
 Architecture: amd64
 Maintainer: Alexey Spiridonov <alexey@spiridonov.dev>
 Description: MCP server for Ubuntu syslog
- Golang MCP server for reading and searching Ubuntu syslog.
- Supports filtering by date range, wildcard patterns, and pagination.
- Authenticates via access key.
+ Go MCP server for reading and searching Ubuntu syslog.
+ Supports filtering by date range, wildcard patterns, pagination,
+ transport-level access-key authentication, and optional response encryption.
