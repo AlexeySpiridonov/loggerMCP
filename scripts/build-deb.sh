@@ -62,11 +62,6 @@ cp debian/prerm "${BUILD_DIR}/DEBIAN/prerm"
 chmod 755 "${BUILD_DIR}/DEBIAN/postinst"
 chmod 755 "${BUILD_DIR}/DEBIAN/prerm"
 
-# conffiles — prevent apt from overwriting config on upgrade
-cat > "${BUILD_DIR}/DEBIAN/conffiles" <<EOF
-/etc/loggermcp/config.yaml
-EOF
-
 # Build .deb
 dpkg-deb --build "${BUILD_DIR}"
 echo "==> Done: ${BUILD_DIR}.deb"

@@ -64,8 +64,6 @@ jobs:
           chmod 755 "${PKG_DIR}/DEBIAN/postinst"
           chmod 755 "${PKG_DIR}/DEBIAN/prerm"
 
-          echo "/etc/loggermcp/config.yaml" > "${PKG_DIR}/DEBIAN/conffiles"
-
           dpkg-deb --build "${PKG_DIR}"
 
       - name: Write build summary
