@@ -5,6 +5,7 @@ VERSION="${1:-0.1.0}"
 ARCH="${2:-amd64}"
 PKG_NAME="loggermcp"
 BUILD_DIR="build/${PKG_NAME}_${VERSION}_${ARCH}"
+DEBIAN_VERSION_REGEX='^([0-9]+:)?[0-9][A-Za-z0-9.+~-]*(-[A-Za-z0-9.+~]+)?$'
 
 require_command() {
 	command -v "$1" > /dev/null 2>&1 || {
@@ -12,6 +13,12 @@ require_command() {
 		exit 1
 	}
 }
+
+if [[ ! "${VERSION}" =~ ${DEBIAN_VERSION_REGEX} ]]; then
+	echo "Invalid Debian package version: ${VERSION}" >&2
+	echo "Version must start with a digit and use Debian version characters only." >&2
+	exit 1
+fi
 
 echo "==> Building ${PKG_NAME} v${VERSION} (${ARCH})"
 

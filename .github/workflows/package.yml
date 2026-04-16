@@ -27,7 +27,7 @@ jobs:
 
       - name: Build package artifacts
         run: |
-          bash ./scripts/build-deb.sh dev-${GITHUB_RUN_NUMBER} ${{ matrix.arch }}
+          bash ./scripts/build-deb.sh 0.0.0+dev.${GITHUB_RUN_NUMBER} ${{ matrix.arch }}
 
       - name: Write artifact summary
         run: |
