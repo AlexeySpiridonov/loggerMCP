@@ -56,7 +56,7 @@ curl -fsSL http://localhost:7777/manifest
 Use the helper script:
 
 ```bash
-./scripts/build-deb.sh 0.1.0 amd64
+bash ./scripts/build-deb.sh 0.1.0 amd64
 ```
 
 This creates:
@@ -72,8 +72,33 @@ Supported architectures:
 Example for ARM64:
 
 ```bash
-./scripts/build-deb.sh 0.1.0 arm64
+bash ./scripts/build-deb.sh 0.1.0 arm64
 ```
+
+Notes:
+
+- local `.deb` building requires `dpkg-deb`
+- on macOS this usually fails unless Debian packaging tools are installed separately
+- the script now exits early with a clear error if required tools are missing
+
+## Build Package Artifacts In GitHub Actions
+
+The repository now has a package build workflow that runs on:
+
+- push to `main`
+- pull requests
+- manual `workflow_dispatch`
+
+That workflow builds:
+
+- `.deb` packages for `amd64` and `arm64`
+- standalone Linux binaries for `amd64` and `arm64`
+
+The outputs are uploaded as GitHub Actions artifacts.
+
+Each workflow run also writes the exact `.deb` and binary filenames to the GitHub Actions job summary.
+
+Use this path when you need package artifacts without creating a tagged release.
 
 ## Install Local Package
 

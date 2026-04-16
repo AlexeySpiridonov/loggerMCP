@@ -1,0 +1,54 @@
+name: Build Packages
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-packages:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev
+
+      - name: Build package artifacts
+        run: |
+          bash ./scripts/build-deb.sh dev-${GITHUB_RUN_NUMBER} ${{ matrix.arch }}
+
+      - name: Write artifact summary
+        run: |
+          {
+            echo "## Package artifacts (${{ matrix.arch }})"
+            echo
+            echo "Artifact name: \`package-${{ matrix.arch }}\`"
+            echo
+            echo "Files:"
+            echo
+            for file in build/*.deb build/loggermcp-linux-*; do
+              if [ -e "$file" ]; then
+                echo "- \`$(basename "$file")\`"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.arch }}
+          path: |
+            build/*.deb
+            build/loggermcp-linux-*

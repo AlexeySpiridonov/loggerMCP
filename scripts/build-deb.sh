@@ -6,7 +6,18 @@ ARCH="${2:-amd64}"
 PKG_NAME="loggermcp"
 BUILD_DIR="build/${PKG_NAME}_${VERSION}_${ARCH}"
 
+require_command() {
+	command -v "$1" > /dev/null 2>&1 || {
+		echo "Missing required command: $1" >&2
+		exit 1
+	}
+}
+
 echo "==> Building ${PKG_NAME} v${VERSION} (${ARCH})"
+
+require_command go
+require_command dpkg-deb
+require_command sed
 
 # Build Go binary
 echo "==> Compiling..."
@@ -33,8 +44,10 @@ cp config.yaml.example "${BUILD_DIR}/etc/loggermcp/config.yaml.example"
 cp debian/loggermcp.service "${BUILD_DIR}/lib/systemd/system/loggermcp.service"
 
 # DEBIAN control
-sed "s/VERSION_PLACEHOLDER/${VERSION}/g" debian/control > "${BUILD_DIR}/DEBIAN/control"
-sed -i "s/amd64/${ARCH}/g" "${BUILD_DIR}/DEBIAN/control"
+sed \
+	-e "s/VERSION_PLACEHOLDER/${VERSION}/g" \
+	-e "s/Architecture: amd64/Architecture: ${ARCH}/g" \
+	debian/control > "${BUILD_DIR}/DEBIAN/control"
 
 # Scripts
 cp debian/postinst "${BUILD_DIR}/DEBIAN/postinst"

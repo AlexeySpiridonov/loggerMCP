@@ -54,8 +54,10 @@ jobs:
           cp config.yaml.example "${PKG_DIR}/etc/loggermcp/config.yaml.example"
           cp debian/loggermcp.service "${PKG_DIR}/lib/systemd/system/loggermcp.service"
 
-          sed "s/VERSION_PLACEHOLDER/${VERSION}/g" debian/control > "${PKG_DIR}/DEBIAN/control"
-          sed -i "s/Architecture: amd64/Architecture: ${GOARCH}/g" "${PKG_DIR}/DEBIAN/control"
+          sed \
+            -e "s/VERSION_PLACEHOLDER/${VERSION}/g" \
+            -e "s/Architecture: amd64/Architecture: ${GOARCH}/g" \
+            debian/control > "${PKG_DIR}/DEBIAN/control"
 
           cp debian/postinst "${PKG_DIR}/DEBIAN/postinst"
           cp debian/prerm "${PKG_DIR}/DEBIAN/prerm"
@@ -65,6 +67,22 @@ jobs:
           echo "/etc/loggermcp/config.yaml" > "${PKG_DIR}/DEBIAN/conffiles"
 
           dpkg-deb --build "${PKG_DIR}"
+
+      - name: Write build summary
+        run: |
+          {
+            echo "## Release build artifacts (${{ matrix.arch }})"
+            echo
+            echo "Artifact name: \`deb-${{ matrix.arch }}\`"
+            echo
+            echo "Files:"
+            echo
+            for file in build/*.deb build/loggermcp-linux-*; do
+              if [ -e "$file" ]; then
+                echo "- \`$(basename "$file")\`"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -88,6 +106,20 @@ jobs:
         with:
           path: debs
           merge-multiple: true
+
+      - name: Write release asset summary
+        run: |
+          {
+            echo "## Release assets"
+            echo
+            echo "Downloaded files:"
+            echo
+            for file in debs/*; do
+              if [ -e "$file" ]; then
+                echo "- \`$(basename "$file")\`"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Import GPG key
         run: |
