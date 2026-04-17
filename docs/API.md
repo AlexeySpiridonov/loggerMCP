@@ -43,7 +43,7 @@ Default response shape:
   "remotes": [
     {
       "type": "sse",
-      "url": "https://logger.example.com/sse"
+      "url": "https://logger.example.com:7777/sse"
     }
   ],
   "title": "loggerMCP",
@@ -78,24 +78,13 @@ GET /health
 
 Example response:
 
-```json
-{
-  "status": "ok",
-  "version": "1.0.0",
-  "time": "2026-04-16T12:00:00Z",
-  "auth_required": true,
-  "tls": true,
-  "log_file": "/var/log/syslog",
-  "log_file_accessible": true,
-  "manifest_url": "https://logger.example.com/manifest",
-  "remote_url": "https://logger.example.com/sse"
-}
+```text
+ok
 ```
 
 Behavior:
 
-- returns HTTP `200` with `status: "ok"` when the configured log file is accessible
-- returns HTTP `503` with `status: "degraded"` when the configured log file cannot be opened
+- returns HTTP `200` with a plain `ok` response body
 
 ## MCP Tool: `read_logs`
 

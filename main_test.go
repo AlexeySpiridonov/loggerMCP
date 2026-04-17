@@ -47,6 +47,21 @@ func TestIsAccessKeyValid(t *testing.T) {
 	}
 }
 
+func TestHealthHandlerReturnsOnlyOK(t *testing.T) {
+	cfg := defaultConfig()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+
+	healthHandler(&cfg).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if got := rec.Body.String(); got != "ok" {
+		t.Fatalf("expected body %q, got %q", "ok", got)
+	}
+}
+
 func TestWithMostLikelyYear(t *testing.T) {
 	now := time.Date(2026, time.January, 1, 1, 0, 0, 0, time.UTC)
 	ts := time.Date(0, time.December, 31, 23, 59, 59, 0, time.UTC)

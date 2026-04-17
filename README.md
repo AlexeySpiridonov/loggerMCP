@@ -58,12 +58,24 @@ Installed paths:
 - service: `loggermcp.service`
 - runtime state: `/var/lib/loggermcp`
 
-Update:
+### Update loggerMCP
+
+If you installed with the one-line installer, rerun it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AlexeySpiridonov/loggerMCP/main/install.sh | sudo bash
+sudo systemctl restart loggermcp
+```
+
+If you installed via APT:
 
 ```bash
 sudo apt update
-sudo apt upgrade loggermcp
+sudo apt install --only-upgrade loggermcp
+sudo systemctl restart loggermcp
 ```
+
+The existing `/etc/loggermcp/config.yaml` is preserved during updates.
 
 ## 3. How To Add It To An AI Client
 
@@ -83,7 +95,7 @@ The server requires `access_key` at the transport layer. Supported forms:
 
 ```json
 {
-  "url": "https://logger.example.com/sse",
+  "url": "https://logger.example.com:7777/sse",
   "headers": {
     "Authorization": "Bearer your-secret-key"
   }
@@ -94,7 +106,7 @@ The server requires `access_key` at the transport layer. Supported forms:
 
 ```json
 {
-  "url": "https://logger.example.com/sse?access_key=your-secret-key"
+  "url": "https://logger.example.com:7777/sse?access_key=your-secret-key"
 }
 ```
 
@@ -115,7 +127,7 @@ Detailed API and endpoint documentation was moved to [docs/API.md](docs/API.md).
 It covers:
 
 - authentication
-- manifest and health responses
+- manifest response and health check
 - the `read_logs` tool
 - filtering, pagination, and encryption behavior
 

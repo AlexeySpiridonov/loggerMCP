@@ -27,11 +27,25 @@ generate_secret() {
     echo
 }
 
+detect_manifest_hostname() {
+    local raw_host manifest_host
+
+    raw_host="$(hostname -f 2>/dev/null || hostname 2>/dev/null || true)"
+    manifest_host="$(printf '%s' "$raw_host" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9.-]/-/g; s/^-*//; s/-*$//')"
+
+    if [ -z "$manifest_host" ]; then
+        manifest_host="localhost"
+    fi
+
+    printf '%s\n' "$manifest_host"
+}
+
 create_default_config() {
     local config_file="$1"
-    local access_key encryption_key
+    local access_key encryption_key manifest_hostname
     access_key="$(generate_secret)"
     encryption_key="$(generate_secret)"
+    manifest_hostname="$(detect_manifest_hostname)"
 
     cat > "$config_file" <<EOF
 access_key: "${access_key}"
@@ -41,14 +55,14 @@ tls: true
 cert_file: "cert.pem"
 key_file: "key.pem"
 encryption_key: "${encryption_key}"
-# public_base_url: "https://logger.example.com"
-manifest_name: "logger.local/mcp"
-manifest_title: "loggerMCP"
+# public_base_url: "https://logger.example.com:7777"
+manifest_name: "logger.${manifest_hostname}/mcp"
+manifest_title: "loggerMCP (${manifest_hostname})"
 manifest_description: "Remote MCP server for Ubuntu syslog search workflows."
 manifest_version: "1.0.0"
 manifest_path: "/manifest"
 manifest_remote_type: "sse"
-# manifest_remote_url: "https://logger.example.com/sse"
+# manifest_remote_url: "https://logger.example.com:7777/sse"
 health_path: "/health"
 EOF
 }

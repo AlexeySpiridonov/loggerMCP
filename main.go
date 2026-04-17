@@ -85,18 +85,6 @@ type manifestResponse struct {
 	Version     string           `json:"version"`
 }
 
-type healthResponse struct {
-	Status            string `json:"status"`
-	Version           string `json:"version"`
-	Time              string `json:"time"`
-	AuthRequired      bool   `json:"auth_required"`
-	TLS               bool   `json:"tls"`
-	LogFile           string `json:"log_file"`
-	LogFileAccessible bool   `json:"log_file_accessible"`
-	ManifestURL       string `json:"manifest_url"`
-	RemoteURL         string `json:"remote_url"`
-}
-
 type readLogsParams struct {
 	Page      int
 	PageSize  int
@@ -305,28 +293,9 @@ func healthHandler(cfg *Config) http.Handler {
 			return
 		}
 
-		logFileAccessible := canAccessLogFile(cfg.SyslogPath)
-
-		status := "ok"
-		statusCode := http.StatusOK
-		if !logFileAccessible {
-			status = "degraded"
-			statusCode = http.StatusServiceUnavailable
-		}
-
-		response := healthResponse{
-			Status:            status,
-			Version:           serverVersion,
-			Time:              time.Now().UTC().Format(time.RFC3339),
-			AuthRequired:      cfg.AccessKey != "",
-			TLS:               cfg.TLS,
-			LogFile:           cfg.SyslogPath,
-			LogFileAccessible: logFileAccessible,
-			ManifestURL:       baseURL(cfg) + cfg.ManifestPath,
-			RemoteURL:         manifestRemoteURL(cfg),
-		}
-
-		writeJSON(w, statusCode, response)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
 	})
 }
 
