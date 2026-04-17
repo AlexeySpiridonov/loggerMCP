@@ -29,6 +29,7 @@ go.work.sum
 
 # Config with secrets
 config.yaml
+.local-secrets/
 
 # TLS certificates
 cert.pem
