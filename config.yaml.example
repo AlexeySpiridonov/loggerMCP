@@ -27,16 +27,17 @@ tls: true
 encryption_key: ""
 
 # Optional public base URL used in manifest responses.
-# Set this when the server is behind a reverse proxy or public hostname.
+# Packaged installs set this to the server IP. Override it behind a reverse proxy or public hostname.
 # public_base_url: "https://logger.example.com:7777"
 
 # Manifest metadata and endpoints.
 # Packaged installs replace manifest_name and manifest_title with the server hostname.
+# The default logger.local/mcp value is also replaced with logger.<hostname>/mcp at startup.
 manifest_name: "logger.local/mcp"
 manifest_title: "loggerMCP"
 manifest_description: "Remote MCP server for Ubuntu syslog search workflows."
 manifest_version: "1.0.0"
-manifest_path: "/manifest"
+manifest_path: "/.well-known/mcp-manifest.json"
 
 # The built-in server transport is SSE.
 # If you change manifest_remote_type to a different value,

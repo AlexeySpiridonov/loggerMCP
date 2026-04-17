@@ -3,6 +3,9 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,6 +28,52 @@ func TestNormalizeHTTPPath(t *testing.T) {
 				t.Fatalf("expected %q, got %q", test.expect, got)
 			}
 		})
+	}
+}
+
+func TestSanitizeManifestHostname(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		expect string
+	}{
+		{name: "lowercases", input: "Prod-Logs-01", expect: "prod-logs-01"},
+		{name: "replaces unsafe characters", input: "prod logs_01", expect: "prod-logs-01"},
+		{name: "fallback", input: "___", expect: "localhost"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := sanitizeManifestHostname(test.input); got != test.expect {
+				t.Fatalf("expected %q, got %q", test.expect, got)
+			}
+		})
+	}
+}
+
+func TestDefaultManifestNameUsesHostname(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.ManifestName == legacyManifestName {
+		t.Fatalf("expected default manifest name to include hostname, got %q", cfg.ManifestName)
+	}
+	if !strings.HasPrefix(cfg.ManifestName, "logger.") || !strings.HasSuffix(cfg.ManifestName, "/mcp") {
+		t.Fatalf("unexpected default manifest name %q", cfg.ManifestName)
+	}
+}
+
+func TestLoadConfigRewritesLegacyManifestPath(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	err := os.WriteFile(configPath, []byte(`manifest_path: "/manifest"`), 0600)
+	if err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		t.Fatalf("unexpected load config error: %v", err)
+	}
+	if cfg.ManifestPath != defaultManifestPath {
+		t.Fatalf("expected manifest path %q, got %q", defaultManifestPath, cfg.ManifestPath)
 	}
 }
 
@@ -60,6 +109,31 @@ func TestHealthHandlerReturnsOnlyOK(t *testing.T) {
 	if got := rec.Body.String(); got != "ok" {
 		t.Fatalf("expected body %q, got %q", "ok", got)
 	}
+}
+
+func TestManifestHandlerAddsCORSHeader(t *testing.T) {
+	cfg := defaultConfig()
+	req := httptest.NewRequest(http.MethodGet, defaultManifestPath, nil)
+	rec := httptest.NewRecorder()
+
+	manifestHandler(&cfg).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("expected CORS header %q, got %q", "*", got)
+	}
+}
+
+func TestLocalCertificateIPsIncludesLoopback(t *testing.T) {
+	ips := localCertificateIPs()
+	for _, ip := range ips {
+		if ip.String() == "127.0.0.1" {
+			return
+		}
+	}
+	t.Fatalf("expected certificate IPs to include 127.0.0.1, got %v", ips)
 }
 
 func TestWithMostLikelyYear(t *testing.T) {

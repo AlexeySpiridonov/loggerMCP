@@ -27,6 +27,7 @@ What it does:
 - installs the binary
 - creates `/etc/loggermcp/config.yaml`
 - generates random `access_key` and `encryption_key`
+- sets the manifest URL to `https://<server-ip>:7777/sse`
 - installs and enables the systemd service
 - uses `/var/lib/loggermcp` for runtime state and generated TLS files
 
@@ -82,7 +83,8 @@ The existing `/etc/loggermcp/config.yaml` is preserved during updates.
 The server exposes these endpoints:
 
 - `/sse` for MCP transport
-- `/manifest` for the public MCP manifest
+- `/.well-known/mcp-manifest.json` for MCP manifest autodiscovery
+- `/manifest` as a legacy manifest alias
 - `/health` for health status
 
 The server requires `access_key` at the transport layer. Supported forms:

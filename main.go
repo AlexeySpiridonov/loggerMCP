@@ -40,9 +40,10 @@ const (
 	defaultPort             = 7777
 	defaultCertFile         = "cert.pem"
 	defaultKeyFile          = "key.pem"
-	defaultManifestName     = "logger.local/mcp"
+	legacyManifestName      = "logger.local/mcp"
 	defaultManifestDesc     = "Remote MCP server for Ubuntu syslog search workflows."
-	defaultManifestPath     = "/manifest"
+	defaultManifestPath     = "/.well-known/mcp-manifest.json"
+	legacyManifestPath      = "/manifest"
 	defaultManifestType     = "sse"
 	defaultHealthPath       = "/health"
 	defaultPage             = 1
@@ -96,13 +97,48 @@ type readLogsParams struct {
 	Encrypt   bool
 }
 
+func sanitizeManifestHostname(hostname string) string {
+	hostname = strings.ToLower(strings.TrimSpace(hostname))
+	var builder strings.Builder
+	for _, r := range hostname {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '.' || r == '-':
+			builder.WriteRune(r)
+		default:
+			builder.WriteRune('-')
+		}
+	}
+
+	manifestHostname := strings.Trim(builder.String(), "-")
+	if manifestHostname == "" {
+		return "localhost"
+	}
+	return manifestHostname
+}
+
+func currentManifestHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "localhost"
+	}
+	return sanitizeManifestHostname(hostname)
+}
+
+func defaultManifestName() string {
+	return fmt.Sprintf("logger.%s/mcp", currentManifestHostname())
+}
+
 func defaultConfig() Config {
 	return Config{
 		SyslogPath:          defaultSyslogPath,
 		Port:                defaultPort,
 		CertFile:            defaultCertFile,
 		KeyFile:             defaultKeyFile,
-		ManifestName:        defaultManifestName,
+		ManifestName:        defaultManifestName(),
 		ManifestTitle:       serverName,
 		ManifestDescription: defaultManifestDesc,
 		ManifestVersion:     serverVersion,
@@ -123,6 +159,13 @@ func loadConfig(path string) (*Config, error) {
 	}
 	cfg.ManifestPath = normalizeHTTPPath(cfg.ManifestPath, defaultManifestPath)
 	cfg.HealthPath = normalizeHTTPPath(cfg.HealthPath, defaultHealthPath)
+	if cfg.ManifestPath == legacyManifestPath {
+		cfg.ManifestPath = defaultManifestPath
+	}
+	cfg.ManifestName = strings.TrimSpace(cfg.ManifestName)
+	if cfg.ManifestName == "" || cfg.ManifestName == legacyManifestName {
+		cfg.ManifestName = defaultManifestName()
+	}
 	cfg.PublicBaseURL = strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
 	cfg.ManifestRemoteType = strings.TrimSpace(cfg.ManifestRemoteType)
 	cfg.ManifestRemoteURL = strings.TrimSpace(cfg.ManifestRemoteURL)
@@ -273,6 +316,7 @@ func manifestHandler(cfg *Config) http.Handler {
 			return
 		}
 
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		writeJSON(w, http.StatusOK, buildManifest(cfg))
 	})
 }
@@ -297,6 +341,45 @@ func healthHandler(cfg *Config) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+}
+
+func localCertificateIPs() []net.IP {
+	seen := map[string]bool{}
+	ips := []net.IP{}
+
+	addIP := func(ip net.IP) {
+		if ip == nil {
+			return
+		}
+		normalized := ip
+		if ipv4 := ip.To4(); ipv4 != nil {
+			normalized = ipv4
+		}
+		key := normalized.String()
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		ips = append(ips, normalized)
+	}
+
+	addIP(net.ParseIP("127.0.0.1"))
+	addIP(net.ParseIP("::1"))
+
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ips
+	}
+	for _, addr := range addrs {
+		switch value := addr.(type) {
+		case *net.IPNet:
+			addIP(value.IP)
+		case *net.IPAddr:
+			addIP(value.IP)
+		}
+	}
+
+	return ips
 }
 
 // ensureTLSCert generates a self-signed certificate if files don't exist.
@@ -330,7 +413,7 @@ func ensureTLSCert(certFile, keyFile string) error {
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("0.0.0.0")},
+		IPAddresses:           localCertificateIPs(),
 		DNSNames:              []string{"localhost"},
 	}
 
@@ -562,7 +645,11 @@ func main() {
 		server.WithAppendQueryToMessageEndpoint(),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(cfg.ManifestPath, manifestHandler(cfg))
+	manifest := manifestHandler(cfg)
+	mux.Handle(cfg.ManifestPath, manifest)
+	if cfg.ManifestPath != legacyManifestPath {
+		mux.Handle(legacyManifestPath, manifest)
+	}
 	mux.Handle(cfg.HealthPath, healthHandler(cfg))
 	mux.Handle("/", accessKeyMiddleware(cfg, sseServer))
 
@@ -593,6 +680,7 @@ func main() {
 			log.Printf("Access key auth: enabled")
 		}
 		log.Printf("Manifest endpoint: %s", baseURL(cfg)+cfg.ManifestPath)
+		log.Printf("Legacy manifest endpoint: %s", baseURL(cfg)+legacyManifestPath)
 		log.Printf("Health endpoint: %s", baseURL(cfg)+cfg.HealthPath)
 		if err := httpServer.ListenAndServeTLS("", ""); err != nil {
 			log.Fatalf("Server error: %v", err)
@@ -604,6 +692,7 @@ func main() {
 			log.Printf("Access key auth: enabled")
 		}
 		log.Printf("Manifest endpoint: %s", baseURL(cfg)+cfg.ManifestPath)
+		log.Printf("Legacy manifest endpoint: %s", baseURL(cfg)+legacyManifestPath)
 		log.Printf("Health endpoint: %s", baseURL(cfg)+cfg.HealthPath)
 		if err := httpServer.ListenAndServe(); err != nil {
 			log.Fatalf("Server error: %v", err)

@@ -48,7 +48,7 @@ curl -fsSL http://localhost:7777/health
 Manifest endpoint:
 
 ```bash
-curl -fsSL http://localhost:7777/manifest
+curl -fsSL http://localhost:7777/.well-known/mcp-manifest.json
 ```
 
 ## Build Debian Package Locally

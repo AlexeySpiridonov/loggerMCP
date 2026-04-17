@@ -40,12 +40,31 @@ detect_manifest_hostname() {
     printf '%s\n' "$manifest_host"
 }
 
+detect_server_ip() {
+    local server_ip
+
+    if command -v ip > /dev/null 2>&1; then
+        server_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}')"
+    fi
+
+    if [ -z "${server_ip:-}" ]; then
+        server_ip="$(hostname -I 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\./) {print $i; exit}}')"
+    fi
+
+    if [ -z "${server_ip:-}" ]; then
+        server_ip="127.0.0.1"
+    fi
+
+    printf '%s\n' "$server_ip"
+}
+
 create_default_config() {
     local config_file="$1"
-    local access_key encryption_key manifest_hostname
+    local access_key encryption_key manifest_hostname server_ip
     access_key="$(generate_secret)"
     encryption_key="$(generate_secret)"
     manifest_hostname="$(detect_manifest_hostname)"
+    server_ip="$(detect_server_ip)"
 
     cat > "$config_file" <<EOF
 access_key: "${access_key}"
@@ -55,12 +74,12 @@ tls: true
 cert_file: "cert.pem"
 key_file: "key.pem"
 encryption_key: "${encryption_key}"
-# public_base_url: "https://logger.example.com:7777"
+public_base_url: "https://${server_ip}:7777"
 manifest_name: "logger.${manifest_hostname}/mcp"
 manifest_title: "loggerMCP (${manifest_hostname})"
 manifest_description: "Remote MCP server for Ubuntu syslog search workflows."
 manifest_version: "1.0.0"
-manifest_path: "/manifest"
+manifest_path: "/.well-known/mcp-manifest.json"
 manifest_remote_type: "sse"
 # manifest_remote_url: "https://logger.example.com:7777/sse"
 health_path: "/health"

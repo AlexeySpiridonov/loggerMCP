@@ -2,12 +2,13 @@
 
 ## Overview
 
-`loggerMCP` exposes three HTTP endpoints and one MCP tool.
+`loggerMCP` exposes HTTP endpoints and one MCP tool.
 
 Endpoints:
 
 - `/sse`: MCP SSE transport endpoint
-- `/manifest`: public MCP manifest JSON
+- `/.well-known/mcp-manifest.json`: public MCP manifest JSON
+- `/manifest`: legacy manifest alias
 - `/health`: public health endpoint
 
 Tool:
@@ -31,7 +32,7 @@ The `read_logs` tool also accepts `access_key` as a legacy fallback if the clien
 Path:
 
 ```text
-GET /manifest
+GET /.well-known/mcp-manifest.json
 ```
 
 Default response shape:
@@ -39,7 +40,7 @@ Default response shape:
 ```json
 {
   "description": "Remote MCP server for Ubuntu syslog search workflows.",
-  "name": "logger.local/mcp",
+  "name": "logger.<hostname>/mcp",
   "remotes": [
     {
       "type": "sse",
