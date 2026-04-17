@@ -139,5 +139,14 @@ Create and export a GPG key:
 
 ```bash
 gpg --full-generate-key
-gpg --armor --export-secret-keys YOUR_KEY_ID
+gpg --list-secret-keys --keyid-format=long
+gpg --armor --export-secret-keys YOUR_KEY_ID > gpg-private-key.asc
 ```
+
+Set the GitHub Actions secrets as:
+
+- `GPG_PRIVATE_KEY`: the full contents of `gpg-private-key.asc`, including the
+  `-----BEGIN PGP PRIVATE KEY BLOCK-----` and `-----END PGP PRIVATE KEY BLOCK-----`
+  lines
+- `GPG_PASSPHRASE`: the passphrase for that private key
+- `GPG_KEY_ID`: the key ID from `gpg --list-secret-keys --keyid-format=long`

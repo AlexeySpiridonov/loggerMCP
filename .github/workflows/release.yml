@@ -32,39 +32,9 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          GOARCH=${{ matrix.arch }}
+          VERSION="${VERSION#.}"
 
-          mkdir -p build
-
-          # Build binary
-          CGO_ENABLED=0 GOOS=linux GOARCH=${GOARCH} go build -ldflags="-s -w" -o build/loggermcp .
-
-          # Copy direct-download binary
-          cp build/loggermcp "build/loggermcp-linux-${GOARCH}"
-
-          # Create .deb layout
-          PKG_DIR="build/loggermcp_${VERSION}_${GOARCH}"
-          mkdir -p "${PKG_DIR}/DEBIAN"
-          mkdir -p "${PKG_DIR}/usr/bin"
-          mkdir -p "${PKG_DIR}/etc/loggermcp"
-          mkdir -p "${PKG_DIR}/lib/systemd/system"
-
-          cp build/loggermcp "${PKG_DIR}/usr/bin/loggermcp"
-          chmod 755 "${PKG_DIR}/usr/bin/loggermcp"
-          cp config.yaml.example "${PKG_DIR}/etc/loggermcp/config.yaml.example"
-          cp debian/loggermcp.service "${PKG_DIR}/lib/systemd/system/loggermcp.service"
-
-          sed \
-            -e "s/VERSION_PLACEHOLDER/${VERSION}/g" \
-            -e "s/Architecture: amd64/Architecture: ${GOARCH}/g" \
-            debian/control > "${PKG_DIR}/DEBIAN/control"
-
-          cp debian/postinst "${PKG_DIR}/DEBIAN/postinst"
-          cp debian/prerm "${PKG_DIR}/DEBIAN/prerm"
-          chmod 755 "${PKG_DIR}/DEBIAN/postinst"
-          chmod 755 "${PKG_DIR}/DEBIAN/prerm"
-
-          dpkg-deb --build "${PKG_DIR}"
+          bash ./scripts/build-deb.sh "${VERSION}" ${{ matrix.arch }}
 
       - name: Write build summary
         run: |
@@ -120,12 +90,37 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
+          set -euo pipefail
           umask 077
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
-          echo "${{ secrets.GPG_PASSPHRASE }}" > /tmp/gpg-passphrase
+
+          if [ -z "${GPG_PRIVATE_KEY}" ]; then
+            echo "Missing GitHub Actions secret: GPG_PRIVATE_KEY" >&2
+            exit 1
+          fi
+
+          if [ -z "${GPG_KEY_ID}" ]; then
+            echo "Missing GitHub Actions secret: GPG_KEY_ID" >&2
+            exit 1
+          fi
+
+          if ! printf '%s' "${GPG_PRIVATE_KEY}" | grep -q "BEGIN PGP PRIVATE KEY BLOCK"; then
+            echo "GPG_PRIVATE_KEY must be an ASCII-armored private key block." >&2
+            exit 1
+          fi
+
+          printf '%s\n' "${GPG_PRIVATE_KEY}" > /tmp/gpg-private-key.asc
+          gpg --batch --import /tmp/gpg-private-key.asc
+          gpg --batch --list-secret-keys "${GPG_KEY_ID}" > /dev/null
+          printf '%s' "${GPG_PASSPHRASE}" > /tmp/gpg-passphrase
 
       - name: Build APT repository
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
           set -euo pipefail
           mkdir -p apt-repo/pool/main
@@ -161,17 +156,19 @@ jobs:
           # Sign Release with GPG
           gpg --batch --yes --pinentry-mode loopback \
             --passphrase-file /tmp/gpg-passphrase \
-            --default-key "${{ secrets.GPG_KEY_ID }}" \
+            --default-key "${GPG_KEY_ID}" \
             -abs -o Release.gpg Release
 
           gpg --batch --yes --pinentry-mode loopback \
             --passphrase-file /tmp/gpg-passphrase \
-            --default-key "${{ secrets.GPG_KEY_ID }}" \
+            --default-key "${GPG_KEY_ID}" \
             --clearsign -o InRelease Release
 
       - name: Export public GPG key
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
-          gpg --armor --export "${{ secrets.GPG_KEY_ID }}" > apt-repo/public.gpg
+          gpg --armor --export "${GPG_KEY_ID}" > apt-repo/public.gpg
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
