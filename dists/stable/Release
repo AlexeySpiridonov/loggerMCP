@@ -1,0 +1,32 @@
+Origin: loggerMCP
+Label: loggerMCP
+Suite: stable
+Codename: stable
+Architectures: amd64 arm64
+Components: main
+Description: loggerMCP APT repository
+Date: Fri, 17 Apr 2026 10:33:10 +0000
+MD5Sum:
+ c897c22a3fddb7990992ce9baa00e0a4              186 Release
+ f4d07ec40f69917b5deebf6ca42a03e2              606 main/binary-amd64/Packages
+ 5d67c44bd29092a0a6dbab1fba1a249a              434 main/binary-amd64/Packages.gz
+ 02c57bbc8f9567e54069ec5a50813b2b              606 main/binary-arm64/Packages
+ ae9d6fbece7b20a9e451dbfd6c022727              435 main/binary-arm64/Packages.gz
+SHA1:
+ 6ebe09ec25fd8a60e636a5b5191e00b964378c08              186 Release
+ 85f9029f395e7901d5e43d54bb4208ff96036684              606 main/binary-amd64/Packages
+ 5c7ccc86b65c811549f9eff5b1abd831869b0b28              434 main/binary-amd64/Packages.gz
+ e7c3a4762da7f51500356aa26b86873646dee7b7              606 main/binary-arm64/Packages
+ 5803a8cc1f3f0ef459bb2bc041cf849fae499f43              435 main/binary-arm64/Packages.gz
+SHA256:
+ a88c62ee5599ab4bb271127fbb451107b6b497ed68d3661414a1bee3bc781759              186 Release
+ d89aee3297df035335993a37ca3d1c0faa4a6dea37c5be88661329ecf837f9d0              606 main/binary-amd64/Packages
+ 8e71234066e051b0fbd7a0f584832926748dedfdcd8ae2e47b110cecebe2242f              434 main/binary-amd64/Packages.gz
+ 62e1b9b94b1155042cfb832290908d61ba37740914fcfd4b0fc9bffb850753ae              606 main/binary-arm64/Packages
+ 47efd2547b23ed246d3bc5160037d27e3513f70e1cef4372d2359d0003cd24c5              435 main/binary-arm64/Packages.gz
+SHA512:
+ 8544739a7c208b50d30fd21125c4a70920d22ebf85ebb085410233d085f8c070eebb792766d32503fe726017ff5550c53d4f9fde99b715ac206c3628fc963d58              186 Release
+ 87789bfed33797e5a3f89eac9284dc9411c693f52b433925852c392ae2675c6b8a308de289b9ebbe077e54faaf20c2b4dec87c6f1e5089425d4eaf427cb3b233              606 main/binary-amd64/Packages
+ 02c5dd1313a82fa6b5dfb8d7e04cae2d5f1456e613f38ac455c4ccc013ef23f8cbb51b7cc1cad91368982e94539f2e038ead68fe22f7a1a78a8d75b172d63a1a              434 main/binary-amd64/Packages.gz
+ 602c0f27bba62ad25c53bb893e033e7ebf6b448d855a7bcbf17fa3fd7613c73fdbbfc5ed228e7f56e5d8374f99a2d02c102f62ee17e6616ebaa1ed0fd87eeffa              606 main/binary-arm64/Packages
+ c02a6a102db13086b12125ae6f712794f0eaa87e388431ddee41e7e16bb6122f3c6d769b6c37ba6b5a8ae926b0de86541177a8b75f08267bec516ee5d4d7ec9c              435 main/binary-arm64/Packages.gz

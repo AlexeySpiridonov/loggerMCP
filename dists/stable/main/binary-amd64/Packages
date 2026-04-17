@@ -1,0 +1,16 @@
+Package: loggermcp
+Version: 0.2.5
+Architecture: amd64
+Maintainer: Alexey Spiridonov <alexey@spiridonov.dev>
+Filename: pool/main/loggermcp_0.2.5_amd64.deb
+Size: 2445996
+MD5sum: abded0531bbe46f14d79bc7b9998e779
+SHA1: a251b8e454cc49f828f7e3bb22f792aecc90f498
+SHA256: 96f2a5cac6a29c8bc4f04a82c95758244d2d6e8fc897cf0d0c7ca3221be3333e
+Section: admin
+Priority: optional
+Description: MCP server for Ubuntu syslog
+ Go MCP server for reading and searching Ubuntu syslog.
+ Supports filtering by date range, wildcard patterns, pagination,
+ transport-level access-key authentication, and optional response encryption.
+
